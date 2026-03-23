@@ -1,113 +1,96 @@
-import { Metadata } from 'next';
-import { notFound } from 'next/navigation';
-import Link from 'next/link';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import { Post } from '@/lib/api';
+import { postsApi } from "@/lib/api";
+import ReactMarkdown from "react-markdown";
+import type { Metadata } from "next";
+import Link from "next/link";
+import { notFound } from "next/navigation";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
+export const revalidate = 60;
 
-async function getPost(slug: string): Promise<Post | null> {
+type Props = { params: { slug: string } };
+
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
   try {
-    const res = await fetch(`${API_URL}/posts/${slug}`, {
-      next: { revalidate: 60 },
-    });
-    if (!res.ok) return null;
-    return res.json();
+    const post = await postsApi.get(params.slug);
+    return {
+      title: post.seo_title ?? post.title,
+      description: post.seo_description ?? post.summary ?? undefined,
+      openGraph: {
+        title: post.seo_title ?? post.title,
+        description: post.seo_description ?? post.summary ?? undefined,
+        type: "article",
+        publishedTime: post.published_at,
+        authors: [post.author.display_name],
+      },
+    };
   } catch {
-    return null;
+    return { title: "Post not found" };
   }
 }
 
-export async function generateMetadata({
-  params,
-}: {
-  params: { slug: string };
-}): Promise<Metadata> {
-  const post = await getPost(params.slug);
-  if (!post) return { title: 'Post Not Found' };
-  return {
-    title: post.seo_title ?? post.title,
-    description: post.seo_description ?? post.summary ?? '',
-    openGraph: {
-      title: post.seo_title ?? post.title,
-      description: post.seo_description ?? post.summary ?? '',
-      type: 'article',
-      publishedTime: post.published_at,
-    },
-  };
-}
-
-export default async function PostPage({
-  params,
-}: {
-  params: { slug: string };
-}) {
-  const post = await getPost(params.slug);
-  if (!post) notFound();
+export default async function PostPage({ params }: Props) {
+  let post;
+  try {
+    post = await postsApi.get(params.slug);
+  } catch (err: unknown) {
+    const e = err as { status?: number };
+    if (e?.status === 404 || e?.status === 403) notFound();
+    throw err;
+  }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Nav */}
-      <nav className="bg-white border-b border-gray-200 px-6 py-4">
-        <Link href="/" className="text-sm text-gray-500 hover:text-gray-900">
-          ← Back to Blog
-        </Link>
-      </nav>
+    <main className="max-w-3xl mx-auto px-4 py-10">
+      {/* Back link */}
+      <Link
+        href="/"
+        className="text-sm text-blue-600 hover:underline mb-6 inline-block"
+      >
+        ← Back to blog
+      </Link>
 
-      <main className="max-w-3xl mx-auto px-6 py-12">
-        {/* Tags */}
-        {post.tags.length > 0 && (
-          <div className="flex flex-wrap gap-2 mb-4">
-            {post.tags.map((tag) => (
-              <span
-                key={tag}
-                className="text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded-full font-medium"
-              >
-                #{tag}
+      {/* Header */}
+      <article>
+        <header className="mb-8">
+          <h1 className="text-4xl font-bold text-slate-900 mb-3">
+            {post.title}
+          </h1>
+          <div className="flex flex-wrap items-center gap-3 text-sm text-slate-500">
+            <span>By {post.author.display_name}</span>
+            {post.published_at && (
+              <span>
+                ·{" "}
+                {new Date(post.published_at).toLocaleDateString("en-US", {
+                  month: "long",
+                  day: "numeric",
+                  year: "numeric",
+                })}
               </span>
-            ))}
+            )}
           </div>
-        )}
-
-        {/* Title */}
-        <h1 className="text-4xl font-bold text-gray-900 mb-4 leading-tight">
-          {post.title}
-        </h1>
-
-        {/* Meta */}
-        <div className="flex items-center gap-4 text-sm text-gray-500 mb-8 pb-8 border-b border-gray-200">
-          {post.author && (
-            <span className="font-medium text-gray-700">
-              By {post.author.display_name}
-            </span>
+          {post.tags.length > 0 && (
+            <div className="flex flex-wrap gap-2 mt-4">
+              {post.tags.map((t) => (
+                <Link
+                  key={t}
+                  href={`/?tag=${t}`}
+                  className="inline-block bg-blue-50 text-blue-700 text-xs font-medium px-2.5 py-1 rounded-full hover:bg-blue-100 transition-colors"
+                >
+                  #{t}
+                </Link>
+              ))}
+            </div>
           )}
-          {post.published_at && (
-            <time dateTime={post.published_at}>
-              {new Date(post.published_at).toLocaleDateString('en-US', {
-                year: 'numeric',
-                month: 'long',
-                day: 'numeric',
-              })}
-            </time>
+          {post.summary && (
+            <p className="mt-4 text-slate-600 italic border-l-4 border-blue-200 pl-4">
+              {post.summary}
+            </p>
           )}
+        </header>
+
+        {/* Content */}
+        <div className="prose prose-slate max-w-none">
+          <ReactMarkdown>{post.content}</ReactMarkdown>
         </div>
-
-        {/* Summary / TLDR */}
-        {post.summary && (
-          <div className="bg-blue-50 border border-blue-200 rounded-xl p-5 mb-8">
-            <p className="text-sm font-semibold text-blue-700 mb-1">Summary</p>
-            <p className="text-gray-700 leading-relaxed">{post.summary}</p>
-          </div>
-        )}
-
-        {/* Body */}
-        <article className="markdown-body">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>
-            {post.content}
-          </ReactMarkdown>
-        </article>
-      </main>
-    </div>
+      </article>
+    </main>
   );
 }

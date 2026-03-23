@@ -1,53 +1,56 @@
-'use client';
+"use client";
 
-import { useState, FormEvent } from 'react';
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import toast from 'react-hot-toast';
-import { authAPI } from '@/lib/api';
-import { setToken, setStoredUser } from '@/lib/auth';
+import { useState, FormEvent } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { signup } from "@/lib/auth";
 
 export default function SignupPage() {
   const router = useRouter();
-  const [displayName, setDisplayName] = useState('');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
+    setError("");
     if (password.length < 8) {
-      toast.error('Password must be at least 8 characters');
+      setError("Password must be at least 8 characters.");
       return;
     }
     setLoading(true);
     try {
-      const data = await authAPI.signup(email, password, displayName);
-      setToken(data.access_token);
-      setStoredUser(data.user);
-      toast.success('Account created! Welcome 🚀');
-      router.push('/');
+      await signup(email, password, displayName);
+      router.push("/");
     } catch (err: unknown) {
-      const msg =
-        (err as { response?: { data?: { detail?: string } } })?.response?.data
-          ?.detail ?? 'Signup failed';
-      toast.error(msg);
+      const e = err as { detail?: string };
+      setError(e?.detail ?? "Sign up failed. Please try again.");
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100">
-      <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-md">
-        <div className="mb-8 text-center">
-          <h1 className="text-3xl font-bold text-gray-900">AI Blog Studio</h1>
-          <p className="mt-2 text-gray-500">Create your account</p>
-        </div>
+    <main className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
+      <div className="w-full max-w-md bg-white rounded-2xl shadow-lg p-8">
+        <h1 className="text-2xl font-bold text-slate-900 mb-2">
+          Create your account
+        </h1>
+        <p className="text-slate-500 mb-6 text-sm">
+          Start writing AI-powered blog posts today.
+        </p>
 
-        <form onSubmit={handleSubmit} className="space-y-5">
+        {error && (
+          <div className="mb-4 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3">
+            {error}
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-slate-700 mb-1">
               Display Name
             </label>
             <input
@@ -55,13 +58,12 @@ export default function SignupPage() {
               required
               value={displayName}
               onChange={(e) => setDisplayName(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="Jane Doe"
             />
           </div>
-
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-slate-700 mb-1">
               Email
             </label>
             <input
@@ -69,15 +71,13 @@ export default function SignupPage() {
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="you@example.com"
             />
           </div>
-
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-sm font-medium text-slate-700 mb-1">
               Password
-              <span className="text-gray-400 font-normal ml-1">(min 8 chars)</span>
             </label>
             <input
               type="password"
@@ -85,27 +85,26 @@ export default function SignupPage() {
               minLength={8}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="••••••••"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="Min. 8 characters"
             />
           </div>
-
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-semibold py-2.5 rounded-lg transition-colors"
+            className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-semibold rounded-lg px-4 py-2 text-sm transition-colors"
           >
-            {loading ? 'Creating account…' : 'Create account'}
+            {loading ? "Creating account…" : "Create account"}
           </button>
         </form>
 
-        <p className="mt-6 text-center text-sm text-gray-500">
-          Already have an account?{' '}
+        <p className="mt-6 text-center text-sm text-slate-500">
+          Already have an account?{" "}
           <Link href="/login" className="text-blue-600 hover:underline font-medium">
             Sign in
           </Link>
         </p>
       </div>
-    </div>
+    </main>
   );
 }
