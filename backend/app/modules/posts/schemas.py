@@ -1,15 +1,14 @@
-import uuid
-from datetime import datetime
-from typing import List, Optional
-
 from pydantic import BaseModel
+from typing import Optional, List
+from datetime import datetime
+import uuid
 
 
-class AuthorResponse(BaseModel):
-    model_config = {"from_attributes": True}
-
+class AuthorInfo(BaseModel):
     id: uuid.UUID
     display_name: str
+
+    model_config = {"from_attributes": True}
 
 
 class PostCreate(BaseModel):
@@ -32,8 +31,6 @@ class PostUpdate(BaseModel):
 
 
 class PostResponse(BaseModel):
-    model_config = {"from_attributes": True}
-
     id: uuid.UUID
     title: str
     slug: str
@@ -43,24 +40,26 @@ class PostResponse(BaseModel):
     summary: Optional[str] = None
     seo_title: Optional[str] = None
     seo_description: Optional[str] = None
-    author_id: uuid.UUID
-    author: Optional[AuthorResponse] = None
+    author_id: Optional[uuid.UUID] = None
+    author: Optional[AuthorInfo] = None
+    published_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
-    published_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
 
 
 class PostListItem(BaseModel):
-    model_config = {"from_attributes": True}
-
     id: uuid.UUID
     title: str
     slug: str
     summary: Optional[str] = None
     tags: List[str] = []
-    author: AuthorResponse
+    author: AuthorInfo
     created_at: datetime
     updated_at: datetime
+
+    model_config = {"from_attributes": True}
 
 
 class PostListResponse(BaseModel):
@@ -72,9 +71,9 @@ class PostListResponse(BaseModel):
 
 
 class PublishResponse(BaseModel):
-    model_config = {"from_attributes": True}
-
     id: uuid.UUID
     status: str
     published_at: datetime
     slug: str
+
+    model_config = {"from_attributes": True}
