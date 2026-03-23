@@ -1,37 +1,54 @@
-'use client';
+"use client";
 
 interface Props {
-  label: string;
+  type: string;
   suggestion: string;
-  onAccept: (suggestion: string) => void;
+  onAccept: () => void;
   onReject: () => void;
 }
 
-export default function AISuggestion({ label, suggestion, onAccept, onReject }: Props) {
+const LABELS: Record<string, string> = {
+  improve: "Improved Content",
+  summary: "Generated Summary",
+  tags: "Suggested Tags",
+  "seo-title": "SEO Title & Description",
+  tldr: "TLDR",
+};
+
+export default function AISuggestion({
+  type,
+  suggestion,
+  onAccept,
+  onReject,
+}: Props) {
   return (
-    <div className="bg-green-50 border border-green-200 rounded-xl p-4 mt-3">
+    <div className="rounded-xl border border-blue-200 bg-blue-50 p-3">
       <div className="flex items-center justify-between mb-2">
-        <p className="text-xs font-semibold text-green-700 uppercase tracking-wide">
-          ✨ {label}
+        <p className="text-xs font-semibold text-blue-700">
+          ✨ {LABELS[type] ?? "AI Suggestion"}
         </p>
-        <div className="flex gap-2">
-          <button
-            onClick={() => onAccept(suggestion)}
-            className="text-xs bg-green-600 text-white px-3 py-1 rounded-md hover:bg-green-700 font-medium"
-          >
-            Accept
-          </button>
-          <button
-            onClick={onReject}
-            className="text-xs bg-white text-gray-600 border border-gray-300 px-3 py-1 rounded-md hover:bg-gray-50 font-medium"
-          >
-            Reject
-          </button>
-        </div>
       </div>
-      <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap line-clamp-6">
-        {suggestion}
-      </p>
+
+      <div className="bg-white rounded-lg border border-blue-100 p-2 mb-3 max-h-40 overflow-y-auto">
+        <p className="text-xs text-slate-700 whitespace-pre-wrap">{suggestion}</p>
+      </div>
+
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={onAccept}
+          className="flex-1 text-xs bg-blue-600 hover:bg-blue-700 text-white font-semibold px-3 py-1.5 rounded-lg transition-colors"
+        >
+          ✓ Accept
+        </button>
+        <button
+          type="button"
+          onClick={onReject}
+          className="flex-1 text-xs border border-slate-300 hover:bg-slate-50 text-slate-600 font-medium px-3 py-1.5 rounded-lg transition-colors"
+        >
+          × Dismiss
+        </button>
+      </div>
     </div>
   );
 }

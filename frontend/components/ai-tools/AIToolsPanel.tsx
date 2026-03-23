@@ -1,175 +1,183 @@
-'use client';
+"use client";
 
-import { useState } from 'react';
-import toast from 'react-hot-toast';
-import { aiAPI } from '@/lib/api';
-import AISuggestion from './AISuggestion';
+import { useState } from "react";
+import { aiApi } from "@/lib/api";
+import AISuggestion from "./AISuggestion";
 
-type Tool = 'improve' | 'summary' | 'tags' | 'seo-title' | 'tldr' | null;
-
-interface Suggestion {
-  tool: Tool;
-  label: string;
-  value: string;
-}
+type AITool = "improve" | "summary" | "tags" | "seo-title" | "tldr" | null;
 
 interface Props {
-  title: string;
   content: string;
-  onContentChange: (v: string) => void;
-  onSummaryChange: (v: string) => void;
-  onTagsChange: (tags: string[]) => void;
-  onSeoTitleChange: (v: string) => void;
-  onSeoDescriptionChange: (v: string) => void;
+  title: string;
+  onImprovedContent: (v: string) => void;
+  onSummary: (v: string) => void;
+  onTags: (tags: string[]) => void;
+  onSeoTitle: (title: string, description: string) => void;
 }
 
-const TOOLS: { id: Tool; label: string; emoji: string; description: string }[] = [
-  { id: 'improve', label: 'Improve Writing', emoji: '✍️', description: 'Rewrite for clarity & engagement' },
-  { id: 'summary', label: 'Generate Summary', emoji: '📝', description: 'Create a concise summary' },
-  { id: 'tags', label: 'Suggest Tags', emoji: '🏷️', description: 'Auto-generate relevant tags' },
-  { id: 'seo-title', label: 'SEO Title', emoji: '🔎', description: 'Optimise title & meta description' },
-  { id: 'tldr', label: 'TLDR', emoji: '⚡', description: '1-2 sentence summary' },
-];
-
 export default function AIToolsPanel({
-  title,
   content,
-  onContentChange,
-  onSummaryChange,
-  onTagsChange,
-  onSeoTitleChange,
-  onSeoDescriptionChange,
+  title,
+  onImprovedContent,
+  onSummary,
+  onTags,
+  onSeoTitle,
 }: Props) {
-  const [loading, setLoading] = useState<Tool>(null);
-  const [suggestion, setSuggestion] = useState<Suggestion | null>(null);
+  const [activeTool, setActiveTool] = useState<AITool>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
-  async function runTool(toolId: Tool) {
+  // Suggestions state
+  const [suggestion, setSuggestion] = useState<string | null>(null);
+  const [suggestionType, setSuggestionType] = useState<AITool>(null);
+
+  async function runTool(tool: AITool) {
     if (!content.trim()) {
-      toast.error('Write some content first!');
+      setError("Add some content first.");
       return;
     }
-    setLoading(toolId);
+    setActiveTool(tool);
+    setLoading(true);
+    setError("");
     setSuggestion(null);
+    setSuggestionType(null);
+
     try {
-      switch (toolId) {
-        case 'improve': {
-          const res = await aiAPI.improve(content);
-          setSuggestion({ tool: toolId, label: 'Improved Content', value: res.improved_content });
+      switch (tool) {
+        case "improve": {
+          const r = await aiApi.improve(content);
+          setSuggestion(r.improved_content);
+          setSuggestionType("improve");
           break;
         }
-        case 'summary': {
-          const res = await aiAPI.summary(content);
-          setSuggestion({ tool: toolId, label: 'Summary', value: res.summary });
+        case "summary": {
+          const r = await aiApi.summary(content);
+          setSuggestion(r.summary);
+          setSuggestionType("summary");
           break;
         }
-        case 'tags': {
-          const res = await aiAPI.tags(content, title);
-          setSuggestion({
-            tool: toolId,
-            label: 'Suggested Tags',
-            value: res.tags.join(', '),
-          });
+        case "tags": {
+          const r = await aiApi.tags(content, title);
+          setSuggestion(r.tags.join(", "));
+          setSuggestionType("tags");
           break;
         }
-        case 'seo-title': {
-          const res = await aiAPI.seoTitle(content, title);
-          setSuggestion({
-            tool: toolId,
-            label: 'SEO Suggestion',
-            value: `Title: ${res.seo_title}\n\nDescription: ${res.seo_description}`,
-          });
+        case "seo-title": {
+          const r = await aiApi.seoTitle(content, title);
+          setSuggestion(`${r.seo_title}\n\n${r.seo_description}`);
+          setSuggestionType("seo-title");
           break;
         }
-        case 'tldr': {
-          const res = await aiAPI.tldr(content);
-          setSuggestion({ tool: toolId, label: 'TLDR', value: res.tldr });
+        case "tldr": {
+          const r = await aiApi.tldr(content);
+          setSuggestion(r.tldr);
+          setSuggestionType("tldr");
           break;
         }
       }
     } catch (err: unknown) {
-      const status = (err as { response?: { status?: number } })?.response?.status;
-      if (status === 429) {
-        toast.error('Rate limit reached. Try again in an hour.');
-      } else if (status === 401) {
-        toast.error('Please sign in to use AI tools.');
+      const e = err as { detail?: string; status?: number };
+      if (e?.status === 429) {
+        setError("Rate limit reached. Try again in an hour.");
       } else {
-        toast.error('AI request failed. Please try again.');
+        setError(e?.detail ?? "AI request failed.");
       }
     } finally {
-      setLoading(null);
+      setLoading(false);
+      setActiveTool(null);
     }
   }
 
-  function handleAccept(value: string) {
+  function handleAccept() {
     if (!suggestion) return;
-    switch (suggestion.tool) {
-      case 'improve':
-        onContentChange(value);
-        toast.success('Content updated!');
+    switch (suggestionType) {
+      case "improve":
+        onImprovedContent(suggestion);
         break;
-      case 'summary':
-        onSummaryChange(value);
-        toast.success('Summary applied!');
+      case "summary":
+        onSummary(suggestion);
         break;
-      case 'tags': {
-        const parsed = value.split(',').map((t) => t.trim()).filter(Boolean);
-        onTagsChange(parsed);
-        toast.success('Tags applied!');
-        break;
-      }
-      case 'seo-title': {
-        const lines = value.split('\n');
-        const titleLine = lines.find((l) => l.startsWith('Title:'));
-        const descLine = lines.find((l) => l.startsWith('Description:'));
-        if (titleLine) onSeoTitleChange(titleLine.replace('Title:', '').trim());
-        if (descLine) onSeoDescriptionChange(descLine.replace('Description:', '').trim());
-        toast.success('SEO fields updated!');
+      case "tags":{
+        const tags = suggestion
+          .split(",")
+          .map((t) => t.trim().toLowerCase())
+          .filter(Boolean);
+        onTags(tags);
         break;
       }
-      case 'tldr':
-        onSummaryChange(value);
-        toast.success('TLDR applied as summary!');
+      case "seo-title": {
+        const [t, ...rest] = suggestion.split("\n\n");
+        onSeoTitle(t.trim(), rest.join("\n\n").trim());
+        break;
+      }
+      case "tldr":
+        onSummary(suggestion);
         break;
     }
     setSuggestion(null);
+    setSuggestionType(null);
   }
+
+  function handleReject() {
+    setSuggestion(null);
+    setSuggestionType(null);
+  }
+
+  const tools: { id: AITool; label: string; desc: string; emoji: string }[] = [
+    { id: "improve", label: "Improve Writing", desc: "Rewrite for clarity & engagement", emoji: "✏️" },
+    { id: "summary", label: "Generate Summary", desc: "Create a concise summary", emoji: "📝" },
+    { id: "tags", label: "Suggest Tags", desc: "Get relevant tags", emoji: "🏷️" },
+    { id: "seo-title", label: "SEO Title & Meta", desc: "Optimise for search engines", emoji: "🔍" },
+    { id: "tldr", label: "TLDR", desc: "One-sentence summary", emoji: "⚡" },
+  ];
 
   return (
     <div>
-      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
+      <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">
         AI Tools
-      </p>
+      </h2>
+
+      {error && (
+        <p className="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2 mb-3">
+          {error}
+        </p>
+      )}
+
       <div className="space-y-2">
-        {TOOLS.map((tool) => (
+        {tools.map(({ id, label, desc, emoji }) => (
           <button
-            key={tool.id}
-            onClick={() => runTool(tool.id)}
-            disabled={loading !== null}
-            className="w-full flex items-start gap-3 p-3 bg-white border border-gray-200 rounded-xl hover:border-blue-300 hover:bg-blue-50 disabled:opacity-50 transition-all text-left"
+            key={id}
+            type="button"
+            onClick={() => runTool(id)}
+            disabled={loading}
+            className="w-full text-left p-3 rounded-xl border border-slate-200 hover:border-blue-300 hover:bg-blue-50 disabled:opacity-50 transition-all group"
           >
-            <span className="text-lg leading-none mt-0.5">{tool.emoji}</span>
-            <div>
-              <p className="text-sm font-medium text-gray-800">
-                {loading === tool.id ? 'Generating…' : tool.label}
-              </p>
-              <p className="text-xs text-gray-400">{tool.description}</p>
-            </div>
-            {loading === tool.id && (
-              <div className="ml-auto mt-1">
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600" />
+            <div className="flex items-center gap-2">
+              <span className="text-base">{emoji}</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-semibold text-slate-700 group-hover:text-blue-700">
+                  {loading && activeTool === id ? "Thinking…" : label}
+                </p>
+                <p className="text-xs text-slate-400 truncate">{desc}</p>
               </div>
-            )}
+              {loading && activeTool === id && (
+                <div className="w-3 h-3 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+              )}
+            </div>
           </button>
         ))}
       </div>
 
-      {suggestion && (
-        <AISuggestion
-          label={suggestion.label}
-          suggestion={suggestion.value}
-          onAccept={handleAccept}
-          onReject={() => setSuggestion(null)}
-        />
+      {/* Suggestion panel */}
+      {suggestion && suggestionType && (
+        <div className="mt-4">
+          <AISuggestion
+            type={suggestionType as string}
+            suggestion={suggestion}
+            onAccept={handleAccept}
+            onReject={handleReject}
+          />
+        </div>
       )}
     </div>
   );
