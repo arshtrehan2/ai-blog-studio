@@ -2,37 +2,20 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ── Markdown preview styles ────────────────────────────────────────────── */
-.markdown-body h1 { @apply text-3xl font-bold mt-6 mb-4 text-gray-900; }
-.markdown-body h2 { @apply text-2xl font-bold mt-5 mb-3 text-gray-900; }
-.markdown-body h3 { @apply text-xl font-semibold mt-4 mb-2 text-gray-900; }
-.markdown-body h4 { @apply text-lg font-semibold mt-3 mb-2 text-gray-800; }
-.markdown-body p  { @apply mb-4 leading-relaxed text-gray-700; }
-.markdown-body ul { @apply list-disc list-inside mb-4 text-gray-700; }
-.markdown-body ol { @apply list-decimal list-inside mb-4 text-gray-700; }
-.markdown-body li { @apply mb-1; }
-.markdown-body a  { @apply text-blue-600 hover:underline; }
-.markdown-body strong { @apply font-bold; }
-.markdown-body em { @apply italic; }
-.markdown-body hr { @apply my-6 border-gray-200; }
-.markdown-body blockquote {
-  @apply border-l-4 border-blue-300 pl-4 italic text-gray-600 my-4;
+:root {
+  --foreground-rgb: 15, 23, 42;
+  --background-rgb: 248, 250, 252;
 }
-.markdown-body code {
-  @apply bg-gray-100 text-pink-600 px-1.5 py-0.5 rounded text-sm font-mono;
+
+body {
+  color: rgb(var(--foreground-rgb));
+  background: rgb(var(--background-rgb));
 }
-.markdown-body pre {
-  @apply bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto mb-4;
+
+.prose pre {
+  @apply bg-slate-900 text-slate-100 rounded-lg p-4 overflow-x-auto;
 }
-.markdown-body pre code {
-  @apply bg-transparent text-gray-100 p-0;
-}
-.markdown-body table {
-  @apply w-full border-collapse mb-4;
-}
-.markdown-body th {
-  @apply bg-gray-100 border border-gray-300 px-4 py-2 text-left font-semibold;
-}
-.markdown-body td {
-  @apply border border-gray-300 px-4 py-2;
+
+.prose code {
+  @apply bg-slate-100 text-slate-800 rounded px-1 py-0.5 text-sm;
 }

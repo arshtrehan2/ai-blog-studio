@@ -1,22 +1,6 @@
-import axios from 'axios';
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
-
-export const apiClient = axios.create({
-  baseURL: API_URL,
-  headers: { 'Content-Type': 'application/json' },
-});
-
-// Attach JWT from localStorage on every request (browser only)
-apiClient.interceptors.request.use((config) => {
-  if (typeof window !== 'undefined') {
-    const token = localStorage.getItem('access_token');
-    if (token) config.headers.Authorization = `Bearer ${token}`;
-  }
-  return config;
-});
-
-// ── Shared types ─────────────────────────────────────────────────────────────────
+// ─── Types ──────────────────────────────────────────────────────────────────
 
 export interface User {
   id: string;
@@ -26,9 +10,10 @@ export interface User {
   created_at: string;
 }
 
-export interface Author {
-  id: string;
-  display_name: string;
+export interface AuthResponse {
+  access_token: string;
+  token_type: string;
+  user: User;
 }
 
 export interface Post {
@@ -37,15 +22,15 @@ export interface Post {
   slug: string;
   content: string;
   tags: string[];
-  status: 'draft' | 'published';
+  status: "draft" | "published";
   summary?: string;
   seo_title?: string;
   seo_description?: string;
   author_id: string;
-  author?: Author;
+  author: { id: string; display_name: string };
+  published_at?: string;
   created_at: string;
   updated_at: string;
-  published_at?: string;
 }
 
 export interface PostListItem {
@@ -54,7 +39,7 @@ export interface PostListItem {
   slug: string;
   summary?: string;
   tags: string[];
-  author: Author;
+  author: { id: string; display_name: string };
   created_at: string;
   updated_at: string;
 }
@@ -67,10 +52,14 @@ export interface PostListResponse {
   total_pages: number;
 }
 
-export interface AuthResponse {
-  access_token: string;
-  token_type: string;
-  user: User;
+export interface PostCreatePayload {
+  title: string;
+  content: string;
+  tags?: string[];
+  status?: "draft" | "published";
+  summary?: string;
+  seo_title?: string;
+  seo_description?: string;
 }
 
 export interface AIUsage {
@@ -78,94 +67,127 @@ export interface AIUsage {
   output_tokens: number;
 }
 
-// ── Auth API ───────────────────────────────────────────────────────────────────
+// ─── API Client ─────────────────────────────────────────────────────────────
 
-export const authAPI = {
+function getToken(): string | null {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem("access_token");
+}
+
+async function request<T>(
+  path: string,
+  options: RequestInit = {},
+  auth = true
+): Promise<T> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...(options.headers as Record<string, string>),
+  };
+
+  if (auth) {
+    const token = getToken();
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({ detail: res.statusText }));
+    throw { status: res.status, detail: error.detail ?? "Unknown error" };
+  }
+
+  if (res.status === 204) return undefined as unknown as T;
+  return res.json();
+}
+
+// ─── Auth ────────────────────────────────────────────────────────────────────
+
+export const authApi = {
   signup: (email: string, password: string, display_name: string) =>
-    apiClient
-      .post<AuthResponse>('/auth/signup', { email, password, display_name })
-      .then((r) => r.data),
+    request<AuthResponse>("/auth/signup", {
+      method: "POST",
+      body: JSON.stringify({ email, password, display_name }),
+    }, false),
 
   login: (email: string, password: string) =>
-    apiClient
-      .post<AuthResponse>('/auth/login', { email, password })
-      .then((r) => r.data),
+    request<AuthResponse>("/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    }, false),
 
-  logout: () => apiClient.post('/auth/logout'),
+  logout: () => request<{ message: string }>("/auth/logout", { method: "POST" }),
 
-  me: () => apiClient.get<User>('/auth/me').then((r) => r.data),
+  me: () => request<User>("/auth/me"),
 };
 
-// ── Posts API ──────────────────────────────────────────────────────────────────
+// ─── Posts ───────────────────────────────────────────────────────────────────
 
-export const postsAPI = {
-  list: (params?: {
-    page?: number;
-    page_size?: number;
-    tag?: string;
-    author_id?: string;
-  }) =>
-    apiClient.get<PostListResponse>('/posts', { params }).then((r) => r.data),
+export const postsApi = {
+  list: (params?: { page?: number; page_size?: number; tag?: string; author_id?: string }) => {
+    const qs = new URLSearchParams();
+    if (params?.page) qs.set("page", String(params.page));
+    if (params?.page_size) qs.set("page_size", String(params.page_size));
+    if (params?.tag) qs.set("tag", params.tag);
+    if (params?.author_id) qs.set("author_id", params.author_id);
+    return request<PostListResponse>(`/posts?${qs.toString()}`, {}, false);
+  },
 
-  get: (id: string) =>
-    apiClient.get<Post>(`/posts/${id}`).then((r) => r.data),
+  get: (idOrSlug: string) => request<Post>(`/posts/${idOrSlug}`, {}, false),
 
-  create: (post: Partial<Post>) =>
-    apiClient.post<Post>('/posts', post).then((r) => r.data),
+  create: (payload: PostCreatePayload) =>
+    request<Post>("/posts", { method: "POST", body: JSON.stringify(payload) }),
 
-  update: (id: string, post: Partial<Post>) =>
-    apiClient.put<Post>(`/posts/${id}`, post).then((r) => r.data),
+  update: (id: string, payload: Partial<PostCreatePayload>) =>
+    request<Post>(`/posts/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    }),
 
-  delete: (id: string) => apiClient.delete(`/posts/${id}`),
+  delete: (id: string) =>
+    request<void>(`/posts/${id}`, { method: "DELETE" }),
 
   publish: (id: string) =>
-    apiClient
-      .patch<{ id: string; status: string; published_at: string; slug: string }>(
-        `/posts/${id}/publish`,
-      )
-      .then((r) => r.data),
+    request<{ id: string; status: string; published_at: string; slug: string }>(
+      `/posts/${id}/publish`,
+      { method: "PATCH" }
+    ),
 };
 
-// ── AI API ─────────────────────────────────────────────────────────────────────
+// ─── AI ──────────────────────────────────────────────────────────────────────
 
-export const aiAPI = {
+export const aiApi = {
   improve: (content: string, context?: string) =>
-    apiClient
-      .post<{ improved_content: string; model: string; usage: AIUsage }>(
-        '/ai/improve',
-        { content, context },
-      )
-      .then((r) => r.data),
+    request<{ improved_content: string; model: string; usage: AIUsage }>(
+      "/ai/improve",
+      { method: "POST", body: JSON.stringify({ content, context }) }
+    ),
 
-  summary: (content: string, max_sentences?: number) =>
-    apiClient
-      .post<{ summary: string; model: string; usage: AIUsage }>('/ai/summary', {
-        content,
-        max_sentences,
-      })
-      .then((r) => r.data),
+  summary: (content: string, max_sentences = 3) =>
+    request<{ summary: string; model: string; usage: AIUsage }>(
+      "/ai/summary",
+      { method: "POST", body: JSON.stringify({ content, max_sentences }) }
+    ),
 
-  tags: (content: string, title?: string, max_tags?: number) =>
-    apiClient
-      .post<{ tags: string[]; model: string; usage: AIUsage }>('/ai/tags', {
-        content,
-        title,
-        max_tags,
-      })
-      .then((r) => r.data),
+  tags: (content: string, title?: string, max_tags = 5) =>
+    request<{ tags: string[]; model: string; usage: AIUsage }>(
+      "/ai/tags",
+      { method: "POST", body: JSON.stringify({ content, title, max_tags }) }
+    ),
 
   seoTitle: (content: string, title?: string, target_keyword?: string) =>
-    apiClient
-      .post<{
-        seo_title: string;
-        seo_description: string;
-        model: string;
-        usage: AIUsage;
-      }>('/ai/seo-title', { content, title, target_keyword })
-      .then((r) => r.data),
+    request<{
+      seo_title: string;
+      seo_description: string;
+      model: string;
+      usage: AIUsage;
+    }>("/ai/seo-title", {
+      method: "POST",
+      body: JSON.stringify({ content, title, target_keyword }),
+    }),
 
   tldr: (content: string) =>
-    apiClient
-      .post<{ tldr: string; model: string; usage: AIUsage }>('/ai/tldr', { content })
-      .then((r) => r.data),
+    request<{ tldr: string; model: string; usage: AIUsage }>(
+      "/ai/tldr",
+      { method: "POST", body: JSON.stringify({ content }) }
+    ),
 };
