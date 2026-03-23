@@ -1,19 +1,28 @@
 import bleach
 
+ALLOWED_TAGS = [
+    "p", "br", "strong", "em", "code", "pre",
+    "h1", "h2", "h3", "h4", "h5", "h6",
+    "ul", "ol", "li", "blockquote", "a", "img",
+]
 
-def sanitize_html(content: str) -> str:
-    """Strip all HTML tags — used before persisting markdown to DB."""
-    return bleach.clean(content, tags=[], strip=True)
+ALLOWED_ATTRIBUTES = {
+    "a": ["href", "title"],
+    "img": ["src", "alt", "title"],
+}
+
+MAX_CONTENT_LENGTH = 10_000
 
 
-def sanitize_for_ai(content: str, max_length: int = 10_000) -> str:
-    """
-    Strip HTML and enforce a maximum character limit before sending
-    content to the Claude API.
-    """
-    cleaned = bleach.clean(content, tags=[], strip=True)
-    if len(cleaned) > max_length:
-        raise ValueError(
-            f"Content exceeds the maximum allowed length of {max_length} characters."
-        )
-    return cleaned
+def sanitize_content(content: str) -> str:
+    """Strip dangerous HTML from markdown content."""
+    return bleach.clean(
+        content,
+        tags=ALLOWED_TAGS,
+        attributes=ALLOWED_ATTRIBUTES,
+        strip=True,
+    )
+
+
+def validate_content_length(content: str, max_length: int = MAX_CONTENT_LENGTH) -> bool:
+    return len(content) <= max_length
