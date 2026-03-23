@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "use";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import EditorSidebar from "@/components/editor/EditorSidebar";
@@ -67,8 +67,8 @@ export default function NewPostPage() {
         seo_description: seoDescription,
         status: "draft",
       });
-      await postsApi.publish(post.id);
-      router.push(`/blog/${post.slug}`);
+      const published = await postsApi.publish(post.id);
+      router.push(`/${published.slug}`);
     } catch (err: unknown) {
       const e = err as { detail?: string };
       setError(e?.detail ?? "Failed to publish.");
@@ -85,10 +85,8 @@ export default function NewPostPage() {
           ← Blog
         </Link>
         <h1 className="font-semibold text-slate-800">New Post</h1>
-        <div className="flex gap-2">
-          {error && (
-            <span className="text-xs text-red-600 self-center">{error}</span>
-          )}
+        <div className="flex gap-2 items-center">
+          {error && <span className="text-xs text-red-600">{error}</span>}
           <button
             onClick={handleSaveDraft}
             disabled={saving}
@@ -107,7 +105,7 @@ export default function NewPostPage() {
       </header>
 
       <div className="flex h-[calc(100vh-57px)]">
-        {/* Main editor */}
+        {/* Main editor area */}
         <div className="flex-1 flex flex-col overflow-hidden">
           <input
             type="text"
@@ -119,7 +117,7 @@ export default function NewPostPage() {
           <div className="flex-1 px-8 overflow-auto">
             <MarkdownEditor value={content} onChange={setContent} />
           </div>
-          <div className="px-8 pb-4">
+          <div className="px-8 pb-4 border-t border-slate-100 pt-2">
             <WordCount content={content} />
           </div>
         </div>
