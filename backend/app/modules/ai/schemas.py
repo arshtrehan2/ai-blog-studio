@@ -1,14 +1,11 @@
-from typing import List, Optional
-
 from pydantic import BaseModel
+from typing import Optional, List
 
 
-class AIUsage(BaseModel):
+class UsageInfo(BaseModel):
     input_tokens: int
     output_tokens: int
 
-
-# — Improve ————————————————————————————————————————————————————————————
 
 class ImproveRequest(BaseModel):
     content: str
@@ -18,10 +15,8 @@ class ImproveRequest(BaseModel):
 class ImproveResponse(BaseModel):
     improved_content: str
     model: str
-    usage: AIUsage
+    usage: UsageInfo
 
-
-# — Summary ——————————————————————————————————————————————————————————
 
 class SummaryRequest(BaseModel):
     content: str
@@ -31,10 +26,8 @@ class SummaryRequest(BaseModel):
 class SummaryResponse(BaseModel):
     summary: str
     model: str
-    usage: AIUsage
+    usage: UsageInfo
 
-
-# — Tags ——————————————————————————————————————————————————————————————
 
 class TagsRequest(BaseModel):
     content: str
@@ -45,10 +38,8 @@ class TagsRequest(BaseModel):
 class TagsResponse(BaseModel):
     tags: List[str]
     model: str
-    usage: AIUsage
+    usage: UsageInfo
 
-
-# — SEO Title —————————————————————————————————————————————————————————
 
 class SEOTitleRequest(BaseModel):
     content: str
@@ -60,10 +51,8 @@ class SEOTitleResponse(BaseModel):
     seo_title: str
     seo_description: str
     model: str
-    usage: AIUsage
+    usage: UsageInfo
 
-
-# — TLDR ————————————————————————————————————————————————————————————————
 
 class TLDRRequest(BaseModel):
     content: str
@@ -72,4 +61,4 @@ class TLDRRequest(BaseModel):
 class TLDRResponse(BaseModel):
     tldr: str
     model: str
-    usage: AIUsage
+    usage: UsageInfo
