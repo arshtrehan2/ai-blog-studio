@@ -1,117 +1,109 @@
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
-from uuid import UUID
 
-from jose import JWTError, jwt
-from passlib.context import CryptContext
-from sqlalchemy.orm import Session
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from jose import JWTError, jwt
+from passlib.context import CryptContext
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
-from app.database import get_db
 from app.config import get_settings
-from .models import User
-from .schemas import SignupRequest, LoginRequest
+from app.database import get_db
+from app.modules.auth.models import User
+from app.modules.auth.schemas import TokenData
 
 settings = get_settings()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 bearer_scheme = HTTPBearer(auto_error=False)
 
 
-# ── Password helpers ─────────────────────────────────────────────────────────
-
-def hash_password(plain: str) -> str:
-    return pwd_context.hash(plain)
+def hash_password(password: str) -> str:
+    return pwd_context.hash(password)
 
 
-def verify_password(plain: str, hashed: str) -> bool:
-    return pwd_context.verify(plain, hashed)
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    return pwd_context.verify(plain_password, hashed_password)
 
 
-# ── JWT helpers ───────────────────────────────────────────────────────────────
-
-def create_access_token(subject: str) -> str:
-    expire = datetime.now(timezone.utc) + timedelta(
-        minutes=settings.access_token_expire_minutes
-    )
-    return jwt.encode(
-        {"sub": subject, "exp": expire},
-        settings.jwt_secret_key,
-        algorithm=settings.jwt_algorithm,
-    )
+def create_access_token(user_id: uuid.UUID) -> str:
+    expire = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    payload = {
+        "sub": str(user_id),
+        "exp": expire,
+        "iat": datetime.now(timezone.utc),
+    }
+    return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
 
-def decode_token(token: str) -> Optional[str]:
+def decode_access_token(token: str) -> Optional[TokenData]:
     try:
-        payload = jwt.decode(
-            token,
-            settings.jwt_secret_key,
-            algorithms=[settings.jwt_algorithm],
-        )
-        return payload.get("sub")
+        payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
+        user_id: str = payload.get("sub")
+        if user_id is None:
+            return None
+        return TokenData(user_id=user_id)
     except JWTError:
         return None
 
 
-# ── DB helpers ────────────────────────────────────────────────────────────────
-
-def get_user_by_email(db: Session, email: str) -> Optional[User]:
-    return db.query(User).filter(User.email == email.lower()).first()
-
-
-def get_user_by_id(db: Session, user_id: UUID) -> Optional[User]:
-    return db.query(User).filter(User.id == user_id).first()
+async def get_user_by_email(db: AsyncSession, email: str) -> Optional[User]:
+    result = await db.execute(select(User).where(User.email == email))
+    return result.scalar_one_or_none()
 
 
-# ── Auth operations ───────────────────────────────────────────────────────────
+async def get_user_by_id(db: AsyncSession, user_id: uuid.UUID) -> Optional[User]:
+    result = await db.execute(select(User).where(User.id == user_id))
+    return result.scalar_one_or_none()
 
-def signup(db: Session, payload: SignupRequest) -> tuple[User, str]:
-    if get_user_by_email(db, payload.email):
+
+async def create_user(db: AsyncSession, email: str, password: str, display_name: str) -> User:
+    existing = await get_user_by_email(db, email)
+    if existing:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Email already registered",
         )
     user = User(
-        email=payload.email.lower(),
-        password_hash=hash_password(payload.password),
-        display_name=payload.display_name,
+        email=email,
+        password_hash=hash_password(password),
+        display_name=display_name,
     )
     db.add(user)
-    db.commit()
-    db.refresh(user)
-    token = create_access_token(str(user.id))
-    return user, token
+    await db.flush()
+    await db.refresh(user)
+    return user
 
 
-def login(db: Session, payload: LoginRequest) -> tuple[User, str]:
-    user = get_user_by_email(db, payload.email)
-    if not user or not verify_password(payload.password, user.password_hash):
+async def authenticate_user(db: AsyncSession, email: str, password: str) -> User:
+    user = await get_user_by_email(db, email)
+    if not user or not verify_password(password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials",
         )
-    token = create_access_token(str(user.id))
-    return user, token
+    return user
 
 
-# ── Dependency ────────────────────────────────────────────────────────────────
-
-def get_current_user(
+async def get_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db),
 ) -> User:
     if not credentials:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
         )
-    user_id = decode_token(credentials.credentials)
-    if not user_id:
+    token_data = decode_access_token(credentials.credentials)
+    if not token_data:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
+            headers={"WWW-Authenticate": "Bearer"},
         )
-    user = get_user_by_id(db, user_id)
+    user = await get_user_by_id(db, uuid.UUID(token_data.user_id))
     if not user or not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
