@@ -1,119 +1,105 @@
-'use client';
+"use client";
 
-interface Props {
+interface PostMetaProps {
+  title: string;
   tags: string[];
-  onTagsChange: (tags: string[]) => void;
-  summary: string;
-  onSummaryChange: (v: string) => void;
   seoTitle: string;
-  onSeoTitleChange: (v: string) => void;
   seoDescription: string;
+  summary: string;
+  onTitleChange: (v: string) => void;
+  onTagsChange: (tags: string[]) => void;
+  onSeoTitleChange: (v: string) => void;
   onSeoDescriptionChange: (v: string) => void;
+  onSummaryChange: (v: string) => void;
 }
 
 export default function PostMeta({
+  title,
   tags,
-  onTagsChange,
-  summary,
-  onSummaryChange,
   seoTitle,
-  onSeoTitleChange,
   seoDescription,
+  summary,
+  onTitleChange,
+  onTagsChange,
+  onSeoTitleChange,
   onSeoDescriptionChange,
-}: Props) {
-  function handleTagInput(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === 'Enter' || e.key === ',') {
-      e.preventDefault();
-      const val = (e.target as HTMLInputElement).value.trim().toLowerCase();
-      if (val && !tags.includes(val)) {
-        onTagsChange([...tags, val]);
-      }
-      (e.target as HTMLInputElement).value = '';
-    }
-  }
+  onSummaryChange,
+}: PostMetaProps) {
+  const tagString = tags.join(", ");
+
+  const handleTagsInput = (value: string) => {
+    const parsed = value
+      .split(",")
+      .map((t) => t.trim().toLowerCase())
+      .filter(Boolean);
+    onTagsChange(parsed);
+  };
 
   return (
-    <div className="space-y-4">
-      {/* Tags */}
-      <div>
-        <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
-          Tags
-        </label>
-        <div className="flex flex-wrap gap-1.5 mb-2">
-          {tags.map((tag) => (
-            <span
-              key={tag}
-              className="inline-flex items-center gap-1 bg-blue-50 text-blue-700 text-xs px-2 py-1 rounded-full"
-            >
-              #{tag}
-              <button
-                onClick={() => onTagsChange(tags.filter((t) => t !== tag))}
-                className="hover:text-red-500 font-bold"
-              >
-                ×
-              </button>
-            </span>
-          ))}
-        </div>
+    <div className="post-meta-panel">
+      <div className="form-group">
+        <label htmlFor="post-title">Title *</label>
         <input
+          id="post-title"
           type="text"
-          onKeyDown={handleTagInput}
-          placeholder="Type a tag and press Enter"
-          className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          value={title}
+          onChange={(e) => onTitleChange(e.target.value)}
+          placeholder="Post title..."
+          maxLength={255}
+          required
+        />
+        <span className="char-count">{title.length}/255</span>
+      </div>
+
+      <div className="form-group">
+        <label htmlFor="post-tags">Tags</label>
+        <input
+          id="post-tags"
+          type="text"
+          defaultValue={tagString}
+          onBlur={(e) => handleTagsInput(e.target.value)}
+          placeholder="python, fastapi, web (comma separated)"
         />
       </div>
 
-      {/* Summary */}
-      <div>
-        <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
-          Summary
-        </label>
+      <div className="form-group">
+        <label htmlFor="post-summary">Summary</label>
         <textarea
+          id="post-summary"
           value={summary}
           onChange={(e) => onSummaryChange(e.target.value)}
+          placeholder="Short summary for the post feed..."
           rows={3}
-          placeholder="A brief description of your post…"
-          className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
       </div>
 
-      {/* SEO Title */}
-      <div>
-        <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
-          SEO Title
-          <span className="normal-case font-normal text-gray-400 ml-1">(max 60 chars)</span>
-        </label>
-        <input
-          type="text"
-          value={seoTitle}
-          maxLength={60}
-          onChange={(e) => onSeoTitleChange(e.target.value)}
-          placeholder="SEO-optimised title"
-          className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-        />
-        <p className="text-right text-xs text-gray-400 mt-0.5">
-          {seoTitle.length}/60
-        </p>
-      </div>
-
-      {/* SEO Description */}
-      <div>
-        <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
-          Meta Description
-          <span className="normal-case font-normal text-gray-400 ml-1">(max 155 chars)</span>
-        </label>
-        <textarea
-          value={seoDescription}
-          maxLength={155}
-          onChange={(e) => onSeoDescriptionChange(e.target.value)}
-          rows={3}
-          placeholder="Appears in search engine results…"
-          className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500"
-        />
-        <p className="text-right text-xs text-gray-400 mt-0.5">
-          {seoDescription.length}/155
-        </p>
-      </div>
+      <details className="seo-section">
+        <summary>SEO Settings</summary>
+        <div className="form-group">
+          <label htmlFor="seo-title">SEO Title</label>
+          <input
+            id="seo-title"
+            type="text"
+            value={seoTitle}
+            onChange={(e) => onSeoTitleChange(e.target.value)}
+            placeholder="SEO-optimized title (max 60 chars)"
+            maxLength={60}
+          />
+          <span className="char-count">{seoTitle.length}/60</span>
+        </div>
+        <div className="form-group">
+          <label htmlFor="seo-description">Meta Description</label>
+          <textarea
+            id="seo-description"
+            value={seoDescription}
+            onChange={(e) => onSeoDescriptionChange(e.target.value)}
+            placeholder="Meta description (max 155 chars)"
+            maxLength={155}
+            rows={3}
+          />
+          <span className="char-count">{seoDescription.length}/155</span>
+        </div>
+      </details>
     </div>
   );
 }
