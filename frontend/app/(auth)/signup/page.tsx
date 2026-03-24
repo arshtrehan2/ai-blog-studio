@@ -1,69 +1,93 @@
 "use client";
+
 import { useState, FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { api } from "@/lib/api";
-import { setToken } from "@/lib/auth";
+import { saveAuth } from "@/lib/auth";
 
 export default function SignupPage() {
   const router = useRouter();
-  const [form, setForm] = useState({ email: "", password: "", display_name: "" });
-  const [error, setError] = useState<string | null>(null);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  async function handleSubmit(e: FormEvent) {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
+    setError("");
+
+    if (password.length < 8) {
+      setError("Password must be at least 8 characters.");
+      return;
+    }
+
     setLoading(true);
-    setError(null);
     try {
-      const data = await api.post<{ access_token: string }>("/auth/signup", form);
-      setToken(data.access_token);
+      const data = await api.signup(email, password, displayName);
+      saveAuth(data.access_token, data.user);
       router.push("/");
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Signup failed";
-      setError(msg);
+      const message = err instanceof Error ? err.message : "Signup failed";
+      setError(message);
     } finally {
       setLoading(false);
     }
-  }
+  };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
-      <div className="w-full max-w-md bg-white rounded-2xl shadow-md p-8">
-        <h1 className="text-2xl font-bold text-slate-800 mb-6">Create your account</h1>
+    <div className="auth-page">
+      <div className="auth-card">
+        <h1>Create account</h1>
         {error && (
-          <div className="mb-4 p-3 rounded bg-red-50 text-red-700 text-sm">{error}</div>
+          <div className="auth-error" role="alert">
+            {error}
+          </div>
         )}
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {([
-            { label: "Display Name", key: "display_name", type: "text" },
-            { label: "Email", key: "email", type: "email" },
-            { label: "Password", key: "password", type: "password" },
-          ] as const).map(({ label, key, type }) => (
-            <div key={key}>
-              <label className="block text-sm font-medium text-slate-700 mb-1">{label}</label>
-              <input
-                type={type}
-                value={form[key]}
-                onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
-                required
-                className="w-full border border-slate-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              />
-            </div>
-          ))}
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-indigo-600 text-white py-2 rounded-lg font-semibold hover:bg-indigo-700 disabled:opacity-50 transition"
-          >
-            {loading ? "Creating account..." : "Create account"}
+        <form onSubmit={handleSubmit} className="auth-form">
+          <div className="form-group">
+            <label htmlFor="display-name">Display Name</label>
+            <input
+              id="display-name"
+              type="text"
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              required
+              placeholder="Your name"
+            />
+          </div>
+          <div className="form-group">
+            <label htmlFor="email">Email</label>
+            <input
+              id="email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              autoComplete="email"
+              placeholder="you@example.com"
+            />
+          </div>
+          <div className="form-group">
+            <label htmlFor="password">Password</label>
+            <input
+              id="password"
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              autoComplete="new-password"
+              minLength={8}
+              placeholder="Min 8 characters"
+            />
+          </div>
+          <button type="submit" disabled={loading} className="btn-primary">
+            {loading ? "Creating account..." : "Sign up"}
           </button>
         </form>
-        <p className="mt-4 text-sm text-slate-600 text-center">
-          Already have an account?{" "}
-          <Link href="/login" className="text-indigo-600 hover:underline">
-            Sign in
-          </Link>
+        <p className="auth-link">
+          Already have an account? <Link href="/login">Log in</Link>
         </p>
       </div>
     </div>
