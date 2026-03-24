@@ -1,105 +1,83 @@
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.modules.auth.router import get_current_user_dep
-from app.modules.ai import schemas, service
-from app.modules.ai.rate_limiter import get_rate_limiter, RateLimiter
-from app.modules.posts.service import log_ai_usage
+from app.modules.auth.service import get_current_user
+from app.modules.auth.models import User
+from app.middleware.sanitizer import sanitize_html
+from .rate_limiter import check_ai_rate_limit
+from .service import (
+    improve_content,
+    generate_summary,
+    suggest_tags,
+    generate_seo_title,
+    generate_tldr,
+)
+from .schemas import (
+    ImproveRequest, ImproveResponse,
+    SummaryRequest, SummaryResponse,
+    TagsRequest, TagsResponse,
+    SeoTitleRequest, SeoTitleResponse,
+    TldrRequest, TldrResponse,
+)
 
-router = APIRouter(prefix="/ai", tags=["ai"])
+router = APIRouter()
 
 
-async def _check_rate_limit(current_user, rate_limiter: RateLimiter):
-    allowed, retry_after = await rate_limiter.check(str(current_user.id))
-    if not allowed:
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail="Rate limit exceeded",
-            headers={"Retry-After": str(retry_after)},
-        )
+def _rate_limit(current_user: User):
+    check_ai_rate_limit(str(current_user.id))
 
 
-@router.post("/improve", response_model=schemas.ImproveResponse)
-async def improve(
-    data: schemas.ImproveRequest,
-    db: AsyncSession = Depends(get_db),
-    current_user=Depends(get_current_user_dep),
-    rate_limiter: RateLimiter = Depends(get_rate_limiter),
+@router.post("/improve", response_model=ImproveResponse)
+def improve_endpoint(
+    payload: ImproveRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    await _check_rate_limit(current_user, rate_limiter)
-    try:
-        improved, usage, latency = service.improve_content(data.content, data.context)
-    except Exception:
-        raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail="AI service timeout")
-    await log_ai_usage(db, user_id=current_user.id, tool="improve",
-        input_tokens=usage.input_tokens, output_tokens=usage.output_tokens, latency_ms=latency)
-    return schemas.ImproveResponse(improved_content=improved, model=service.settings.ANTHROPIC_MODEL, usage=usage)
+    _rate_limit(current_user)
+    payload.content = sanitize_html(payload.content)
+    return improve_content(db, current_user.id, payload)
 
 
-@router.post("/summary", response_model=schemas.SummaryResponse)
-async def summarize(
-    data: schemas.SummaryRequest,
-    db: AsyncSession = Depends(get_db),
-    current_user=Depends(get_current_user_dep),
-    rate_limiter: RateLimiter = Depends(get_rate_limiter),
+@router.post("/summary", response_model=SummaryResponse)
+def summary_endpoint(
+    payload: SummaryRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    await _check_rate_limit(current_user, rate_limiter)
-    try:
-        summary, usage, latency = service.generate_summary(data.content, data.max_sentences)
-    except Exception:
-        raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail="AI service timeout")
-    await log_ai_usage(db, user_id=current_user.id, tool="summary",
-        input_tokens=usage.input_tokens, output_tokens=usage.output_tokens, latency_ms=latency)
-    return schemas.SummaryResponse(summary=summary, model=service.settings.ANTHROPIC_MODEL, usage=usage)
+    _rate_limit(current_user)
+    payload.content = sanitize_html(payload.content)
+    return generate_summary(db, current_user.id, payload)
 
 
-@router.post("/tags", response_model=schemas.TagsResponse)
-async def tags(
-    data: schemas.TagsRequest,
-    db: AsyncSession = Depends(get_db),
-    current_user=Depends(get_current_user_dep),
-    rate_limiter: RateLimiter = Depends(get_rate_limiter),
+@router.post("/tags", response_model=TagsResponse)
+def tags_endpoint(
+    payload: TagsRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    await _check_rate_limit(current_user, rate_limiter)
-    try:
-        suggested_tags, usage, latency = service.suggest_tags(data.content, data.title, data.max_tags)
-    except Exception:
-        raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail="AI service timeout")
-    await log_ai_usage(db, user_id=current_user.id, tool="tags",
-        input_tokens=usage.input_tokens, output_tokens=usage.output_tokens, latency_ms=latency)
-    return schemas.TagsResponse(tags=suggested_tags, model=service.settings.ANTHROPIC_MODEL, usage=usage)
+    _rate_limit(current_user)
+    payload.content = sanitize_html(payload.content)
+    return suggest_tags(db, current_user.id, payload)
 
 
-@router.post("/seo-title", response_model=schemas.SEOTitleResponse)
-async def seo_title(
-    data: schemas.SEOTitleRequest,
-    db: AsyncSession = Depends(get_db),
-    current_user=Depends(get_current_user_dep),
-    rate_limiter: RateLimiter = Depends(get_rate_limiter),
+@router.post("/seo-title", response_model=SeoTitleResponse)
+def seo_title_endpoint(
+    payload: SeoTitleRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    await _check_rate_limit(current_user, rate_limiter)
-    try:
-        seo_t, seo_d, usage, latency = service.generate_seo_title(data.content, data.title, data.target_keyword)
-    except Exception:
-        raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail="AI service timeout")
-    await log_ai_usage(db, user_id=current_user.id, tool="seo-title",
-        input_tokens=usage.input_tokens, output_tokens=usage.output_tokens, latency_ms=latency)
-    return schemas.SEOTitleResponse(seo_title=seo_t, seo_description=seo_d, model=service.settings.ANTHROPIC_MODEL, usage=usage)
+    _rate_limit(current_user)
+    payload.content = sanitize_html(payload.content)
+    return generate_seo_title(db, current_user.id, payload)
 
 
-@router.post("/tldr", response_model=schemas.TLDRResponse)
-async def tldr(
-    data: schemas.TLDRRequest,
-    db: AsyncSession = Depends(get_db),
-    current_user=Depends(get_current_user_dep),
-    rate_limiter: RateLimiter = Depends(get_rate_limiter),
+@router.post("/tldr", response_model=TldrResponse)
+def tldr_endpoint(
+    payload: TldrRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    await _check_rate_limit(current_user, rate_limiter)
-    try:
-        tldr_text, usage, latency = service.generate_tldr(data.content)
-    except Exception:
-        raise HTTPException(status_code=status.HTTP_504_GATEWAY_TIMEOUT, detail="AI service timeout")
-    await log_ai_usage(db, user_id=current_user.id, tool="tldr",
-        input_tokens=usage.input_tokens, output_tokens=usage.output_tokens, latency_ms=latency)
-    return schemas.TLDRResponse(tldr=tldr_text, model=service.settings.ANTHROPIC_MODEL, usage=usage)
+    _rate_limit(current_user)
+    payload.content = sanitize_html(payload.content)
+    return generate_tldr(db, current_user.id, payload)

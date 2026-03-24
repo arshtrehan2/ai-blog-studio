@@ -1,4 +1,4 @@
-"""System prompts for all AI tools."""
+"""System prompts for each AI tool."""
 
 IMPROVE_SYSTEM_PROMPT = (
     "You are a professional technical editor. "
@@ -13,14 +13,13 @@ SUMMARY_SYSTEM_PROMPT = (
 
 TAGS_SYSTEM_PROMPT = (
     "Suggest {max_tags} relevant, lowercase, hyphenated tags for the following content. "
-    "Return as a JSON array of strings. Return ONLY the JSON array, no other text."
+    "Return as a JSON array of strings only, no explanation."
 )
 
 SEO_TITLE_SYSTEM_PROMPT = (
     "Generate an SEO-optimized title (max 60 chars) and meta description (max 155 chars) "
     "for the following article. "
-    'Return JSON with exactly two keys: \"seo_title\" and \"seo_description\". '
-    "Return ONLY the JSON object, no other text."
+    'Return JSON only in this exact format: {"seo_title": "...", "seo_description": "..."}'
 )
 
 TLDR_SYSTEM_PROMPT = (

@@ -1,5 +1,9 @@
+from typing import Optional
+from uuid import UUID
 from pydantic import BaseModel, field_validator
-from typing import Optional, List
+
+
+MAX_CONTENT_LENGTH = 10_000
 
 
 class UsageInfo(BaseModel):
@@ -7,17 +11,20 @@ class UsageInfo(BaseModel):
     output_tokens: int
 
 
+# ── Improve ─────────────────────────────────────────────────────────────────
+
 class ImproveRequest(BaseModel):
     content: str
     context: Optional[str] = None
+    post_id: Optional[UUID] = None
 
     @field_validator("content")
     @classmethod
-    def content_not_empty(cls, v: str) -> str:
+    def content_length(cls, v: str) -> str:
         if not v.strip():
-            raise ValueError("Content cannot be empty")
-        if len(v) > 10000:
-            raise ValueError("Content must be at most 10,000 characters")
+            raise ValueError("content must not be empty")
+        if len(v) > MAX_CONTENT_LENGTH:
+            raise ValueError(f"content must be at most {MAX_CONTENT_LENGTH} characters")
         return v
 
 
@@ -27,17 +34,20 @@ class ImproveResponse(BaseModel):
     usage: UsageInfo
 
 
+# ── Summary ─────────────────────────────────────────────────────────────────
+
 class SummaryRequest(BaseModel):
     content: str
     max_sentences: int = 3
+    post_id: Optional[UUID] = None
 
     @field_validator("content")
     @classmethod
-    def content_not_empty(cls, v: str) -> str:
+    def content_length(cls, v: str) -> str:
         if not v.strip():
-            raise ValueError("Content cannot be empty")
-        if len(v) > 10000:
-            raise ValueError("Content must be at most 10,000 characters")
+            raise ValueError("content must not be empty")
+        if len(v) > MAX_CONTENT_LENGTH:
+            raise ValueError(f"content must be at most {MAX_CONTENT_LENGTH} characters")
         return v
 
 
@@ -47,59 +57,68 @@ class SummaryResponse(BaseModel):
     usage: UsageInfo
 
 
+# ── Tags ────────────────────────────────────────────────────────────────────
+
 class TagsRequest(BaseModel):
     content: str
     title: Optional[str] = None
     max_tags: int = 5
+    post_id: Optional[UUID] = None
 
     @field_validator("content")
     @classmethod
     def content_not_empty(cls, v: str) -> str:
         if not v.strip():
-            raise ValueError("Content cannot be empty")
+            raise ValueError("content must not be empty")
         return v
 
 
 class TagsResponse(BaseModel):
-    tags: List[str]
+    tags: list[str]
     model: str
     usage: UsageInfo
 
 
-class SEOTitleRequest(BaseModel):
+# ── SEO Title ───────────────────────────────────────────────────────────────
+
+class SeoTitleRequest(BaseModel):
     content: str
     title: Optional[str] = None
     target_keyword: Optional[str] = None
+    post_id: Optional[UUID] = None
 
     @field_validator("content")
     @classmethod
     def content_not_empty(cls, v: str) -> str:
         if not v.strip():
-            raise ValueError("Content cannot be empty")
+            raise ValueError("content must not be empty")
         return v
 
 
-class SEOTitleResponse(BaseModel):
+class SeoTitleResponse(BaseModel):
     seo_title: str
     seo_description: str
     model: str
     usage: UsageInfo
 
 
-class TLDRRequest(BaseModel):
+# ── TLDR ────────────────────────────────────────────────────────────────────
+
+class TldrRequest(BaseModel):
     content: str
+    post_id: Optional[UUID] = None
 
     @field_validator("content")
     @classmethod
-    def content_not_empty(cls, v: str) -> str:
+    def content_length(cls, v: str) -> str:
         if not v.strip():
-            raise ValueError("Content cannot be empty")
-        if len(v) > 10000:
-            raise ValueError("Content must be at most 10,000 characters")
+            raise ValueError("content must not be empty")
+        if len(v) > MAX_CONTENT_LENGTH:
+            raise ValueError(f"content must be at most {MAX_CONTENT_LENGTH} characters")
         return v
 
 
-class TLDRResponse(BaseModel):
+class TldrResponse(BaseModel):
     tldr: str
     model: str
     usage: UsageInfo
