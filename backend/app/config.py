@@ -1,22 +1,46 @@
-from pydantic_settings import BaseSettings
-from typing import List
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from functools import lru_cache
 
 
 class Settings(BaseSettings):
-    DATABASE_URL: str = "postgresql://postgres:dev@localhost/blogstudio"
-    REDIS_URL: str = "redis://localhost:6379"
-    ANTHROPIC_API_KEY: str = ""
-    JWT_SECRET_KEY: str = "dev-secret-key-change-in-production"
-    JWT_ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
-    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
-    ALLOWED_ORIGINS: List[str] = ["http://localhost:3000"]
-    AI_RATE_LIMIT_PER_HOUR: int = 20
-    ENVIRONMENT: str = "development"
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+    )
 
-    class Config:
-        env_file = ".env"
-        extra = "ignore"
+    # App
+    app_name: str = "AI Blog Studio"
+    debug: bool = False
+    allowed_origins: str = "http://localhost:3000"
+
+    # Database
+    database_url: str = "postgresql://postgres:dev@localhost/blogstudio"
+    test_database_url: str = "sqlite+aiosqlite:///./test.db"
+
+    # Redis
+    redis_url: str = "redis://localhost:6379"
+
+    # JWT
+    jwt_secret_key: str = "change-me-in-production-please-use-a-long-random-string"
+    jwt_algorithm: str = "HS256"
+    access_token_expire_minutes: int = 15
+    refresh_token_expire_days: int = 7
+
+    # Anthropic
+    anthropic_api_key: str = ""
+    anthropic_model: str = "claude-3-5-sonnet-20241022"
+
+    # Rate limiting
+    ai_rate_limit_requests: int = 20
+    ai_rate_limit_window_seconds: int = 3600  # 1 hour
+
+    @property
+    def allowed_origins_list(self) -> list[str]:
+        return [o.strip() for o in self.allowed_origins.split(",")]
 
 
-settings = Settings()
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
