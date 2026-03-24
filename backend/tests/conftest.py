@@ -1,81 +1,131 @@
+import asyncio
 import pytest
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, event
-from sqlalchemy.orm import sessionmaker
+import pytest_asyncio
+from typing import AsyncGenerator
+from unittest.mock import AsyncMock
+from httpx import AsyncClient, ASGITransport
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.pool import StaticPool
-import uuid
 
-from app.main import app
+from app.main import create_app
 from app.database import Base, get_db
+from app.modules.auth.service import create_access_token
+from app.modules.auth.models import User
+from app.modules.auth.schemas import SignupRequest
+from app.modules.ai.rate_limiter import get_rate_limiter, RateLimiter
 
-# Import all models so they're registered with Base.metadata
-from app.modules.auth.models import User  # noqa: F401
-from app.modules.posts.models import Post, Tag, post_tags  # noqa: F401
-from app.modules.ai.models import AIUsageLog  # noqa: F401
-
-# Use SQLite in-memory for tests
-SQLALCHEMY_DATABASE_URL = "sqlite://"
-
-engine = create_engine(
-    SQLALCHEMY_DATABASE_URL,
-    connect_args={"check_same_thread": False},
-    poolclass=StaticPool,
-)
+TEST_DB_URL = "sqlite+aiosqlite:///:memory:"
 
 
-# Enable FK constraints in SQLite
-@event.listens_for(engine, "connect")
-def set_sqlite_pragma(dbapi_connection, connection_record):
-    cursor = dbapi_connection.cursor()
-    cursor.execute("PRAGMA foreign_keys=ON")
-    cursor.close()
+@pytest_asyncio.fixture(scope="function")
+async def test_engine():
+    engine = create_async_engine(
+        TEST_DB_URL,
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    yield engine
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+    await engine.dispose()
 
 
-TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-
-@pytest.fixture(scope="function")
-def db():
-    Base.metadata.create_all(bind=engine)
-    session = TestingSessionLocal()
-    try:
+@pytest_asyncio.fixture(scope="function")
+async def db_session(test_engine) -> AsyncGenerator[AsyncSession, None]:
+    session_factory = async_sessionmaker(
+        bind=test_engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+    )
+    async with session_factory() as session:
         yield session
-    finally:
-        session.close()
-        Base.metadata.drop_all(bind=engine)
 
 
-@pytest.fixture(scope="function")
-def client(db):
-    def override_get_db():
-        try:
-            yield db
-        finally:
-            pass
+def _make_session_factory(engine):
+    return async_sessionmaker(
+        bind=engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+    )
 
-    app.dependency_overrides[get_db] = override_get_db
-    with TestClient(app) as c:
-        yield c
-    app.dependency_overrides.clear()
+
+def _make_db_override(session_factory):
+    async def override_get_db():
+        async with session_factory() as session:
+            try:
+                yield session
+                await session.commit()
+            except Exception:
+                await session.rollback()
+                raise
+    return override_get_db
+
+
+def _make_permissive_rate_limiter():
+    mock_limiter = AsyncMock(spec=RateLimiter)
+    mock_limiter.check = AsyncMock(return_value=(True, 0))
+
+    async def _allow():
+        return mock_limiter
+
+    return _allow
+
+
+@pytest_asyncio.fixture(scope="function")
+async def client(test_engine) -> AsyncGenerator[AsyncClient, None]:
+    session_factory = _make_session_factory(test_engine)
+    app = create_app()
+    app.dependency_overrides[get_db] = _make_db_override(session_factory)
+    app.dependency_overrides[get_rate_limiter] = _make_permissive_rate_limiter()
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+    ) as ac:
+        yield ac
+
+
+@pytest_asyncio.fixture(scope="function")
+async def rate_limited_client(test_engine) -> AsyncGenerator[AsyncClient, None]:
+    session_factory = _make_session_factory(test_engine)
+    app = create_app()
+    app.dependency_overrides[get_db] = _make_db_override(session_factory)
+
+    mock_limiter = AsyncMock(spec=RateLimiter)
+    mock_limiter.check = AsyncMock(return_value=(False, 3600))
+
+    async def _block():
+        return mock_limiter
+
+    app.dependency_overrides[get_rate_limiter] = _block
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test",
+    ) as ac:
+        yield ac
+
+
+@pytest_asyncio.fixture(scope="function")
+async def test_user(db_session: AsyncSession) -> User:
+    from app.modules.auth.service import create_user
+    data = SignupRequest(
+        email="test@example.com",
+        password="testpassword123",
+        display_name="Test User",
+    )
+    user = await create_user(db_session, data)
+    await db_session.commit()
+    return user
 
 
 @pytest.fixture
-def test_user_data():
-    return {
-        "email": f"test_{uuid.uuid4().hex[:8]}@example.com",
-        "password": "testpassword123",
-        "display_name": "Test User",
-    }
+def user_token(test_user: User) -> str:
+    return create_access_token(str(test_user.id))
 
 
 @pytest.fixture
-def registered_user(client, test_user_data):
-    response = client.post("/auth/signup", json=test_user_data)
-    assert response.status_code == 201
-    return response.json()
-
-
-@pytest.fixture
-def auth_headers(registered_user):
-    token = registered_user["access_token"]
-    return {"Authorization": f"Bearer {token}"}
+def auth_headers(user_token: str) -> dict:
+    return {"Authorization": f"Bearer {user_token}"}
