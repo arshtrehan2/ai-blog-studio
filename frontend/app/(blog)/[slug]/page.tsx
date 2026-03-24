@@ -1,62 +1,91 @@
-import { postsAPI } from "@/lib/api";
-import ReactMarkdown from "react-markdown";
-import type { Metadata } from "next";
+import { Metadata } from "next";
 import { notFound } from "next/navigation";
+import ReactMarkdown from "react-markdown";
+import { Post } from "@/lib/api";
 
-interface Props { params: { slug: string }; }
-
-export async function generateMetadata({ params }: Props): Promise<Metadata> {
-  try {
-    const post = await postsAPI.get(params.slug);
-    return {
-      title: post.seo_title || post.title,
-      description: post.seo_description || post.summary || undefined,
-      openGraph: {
-        title: post.seo_title || post.title,
-        description: post.seo_description || post.summary || undefined,
-        type: "article",
-        publishedTime: post.published_at || undefined,
-        authors: post.author ? [post.author.display_name] : undefined,
-      },
-    };
-  } catch {
-    return { title: "Post Not Found" };
-  }
+interface PageProps {
+  params: Promise<{ slug: string }>;
 }
 
-export default async function PostPage({ params }: Props) {
-  let post;
-  try { post = await postsAPI.get(params.slug); }
-  catch { notFound(); }
+async function getPost(slug: string): Promise<Post | null> {
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+  const res = await fetch(`${apiUrl}/posts/${slug}`, {
+    next: { revalidate: 300 },
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) return null;
+  return res.json();
+}
+
+export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+  const { slug } = await params;
+  const post = await getPost(slug);
+  if (!post) {
+    return { title: "Post Not Found | AI Blog Studio" };
+  }
+
+  const title = post.seo_title || post.title;
+  const description = post.seo_description || post.summary || "";
+
+  return {
+    title: `${title} | AI Blog Studio`,
+    description,
+    openGraph: {
+      title,
+      description,
+      type: "article",
+      publishedTime: post.published_at || undefined,
+      authors: post.author ? [post.author.display_name] : [],
+    },
+  };
+}
+
+export default async function PostPage({ params }: PageProps) {
+  const { slug } = await params;
+  const post = await getPost(slug);
+
+  if (!post) {
+    notFound();
+  }
+
   return (
-    <div style={{ maxWidth: 760, margin: "0 auto", padding: "48px 24px" }}>
-      <article>
-        <header style={{ marginBottom: 40 }}>
-          <h1 style={{ fontSize: 36, fontWeight: 800, lineHeight: 1.2, marginBottom: 16 }}>{post.title}</h1>
-          <div style={{ display: "flex", gap: 12, alignItems: "center", color: "var(--color-text-muted)", fontSize: 14 }}>
-            {post.author && <span>By <strong>{post.author.display_name}</strong></span>}
-            {post.published_at && <span>{new Date(post.published_at).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}</span>}
-          </div>
-          {post.tags.length > 0 && (
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 16 }}>
-              {post.tags.map(tag => (
-                <a key={tag} href={`/?tag=${encodeURIComponent(tag)}`}
-                  style={{ padding: "4px 10px", background: "var(--color-bg-secondary)", border: "1px solid var(--color-border)", borderRadius: 20, fontSize: 13, color: "var(--color-text-muted)" }}>
-                  {tag}
-                </a>
-              ))}
-            </div>
+    <article className="post-detail">
+      <header className="post-header">
+        <h1>{post.title}</h1>
+        <div className="post-meta">
+          {post.author && (
+            <span className="post-author">By {post.author.display_name}</span>
           )}
-          {post.summary && (
-            <p style={{ marginTop: 20, padding: 16, background: "var(--color-bg-secondary)", borderLeft: "4px solid var(--color-primary)", borderRadius: "0 6px 6px 0", color: "var(--color-text-muted)", fontStyle: "italic" }}>
-              {post.summary}
-            </p>
+          {post.published_at && (
+            <time dateTime={post.published_at}>
+              {new Date(post.published_at).toLocaleDateString("en-US", {
+                year: "numeric",
+                month: "long",
+                day: "numeric",
+              })}
+            </time>
           )}
-        </header>
-        <div style={{ lineHeight: 1.8, fontSize: 17 }}>
-          <ReactMarkdown>{post.content}</ReactMarkdown>
         </div>
-      </article>
-    </div>
+        {post.tags.length > 0 && (
+          <div className="post-tags">
+            {post.tags.map((tag) => (
+              <a key={tag} href={`/?tag=${tag}`} className="tag">
+                {tag}
+              </a>
+            ))}
+          </div>
+        )}
+      </header>
+
+      {post.summary && (
+        <div className="post-summary-box">
+          <strong>Summary:</strong> {post.summary}
+        </div>
+      )}
+
+      <div className="post-content">
+        <ReactMarkdown>{post.content}</ReactMarkdown>
+      </div>
+    </article>
   );
 }
