@@ -1,22 +1,19 @@
 import os
-import sys
 from logging.config import fileConfig
-
 from sqlalchemy import engine_from_config, pool
 from alembic import context
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-
-from app.config import settings
-from app.database import Base
-from app.modules.auth.models import User  # noqa
-from app.modules.posts.models import Post, Tag, AIUsageLog, post_tags  # noqa
+# Import all models so Alembic can detect them
+from app.database import Base  # noqa: F401
+from app.modules.auth.models import User  # noqa: F401
+from app.modules.posts.models import Post, Tag, PostTag, AIUsageLog  # noqa: F401
 
 config = context.config
-config.set_main_option(
-    "sqlalchemy.url",
-    settings.DATABASE_URL.replace("postgresql://", "postgresql+psycopg2://"),
-)
+
+# Override sqlalchemy.url from environment variable if set
+database_url = os.environ.get("DATABASE_URL")
+if database_url:
+    config.set_main_option("sqlalchemy.url", database_url)
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
