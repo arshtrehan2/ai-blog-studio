@@ -1,15 +1,8 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
-import "./globals.css";
-
-const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: {
-    default: "AI Blog Studio",
-    template: "%s | AI Blog Studio",
-  },
-  description: "Write better blog posts with AI-powered tools.",
+  title: "AI Blog Studio",
+  description: "A blog platform powered by AI writing tools",
 };
 
 export default function RootLayout({
@@ -19,8 +12,23 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className={inter.className}>
-        <main className="min-h-screen">{children}</main>
+      <body>
+        <header className="site-header">
+          <nav>
+            <a href="/" className="site-logo">
+              AI Blog Studio
+            </a>
+            <div className="nav-links">
+              <a href="/">Blog</a>
+              <a href="/new">Write</a>
+              <a href="/login">Login</a>
+            </div>
+          </nav>
+        </header>
+        <main>{children}</main>
+        <footer className="site-footer">
+          <p>AI Blog Studio &copy; {new Date().getFullYear()}</p>
+        </footer>
       </body>
     </html>
   );
