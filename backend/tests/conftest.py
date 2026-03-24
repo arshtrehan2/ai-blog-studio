@@ -1,131 +1,106 @@
-import asyncio
+"""
+pytest configuration and shared fixtures for AI Blog Studio backend tests.
+
+Uses SQLite in-memory database to avoid needing a live PostgreSQL instance.
+Redis calls are mocked via unittest.mock.
+"""
 import pytest
-import pytest_asyncio
-from typing import AsyncGenerator
-from unittest.mock import AsyncMock
-from httpx import AsyncClient, ASGITransport
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from unittest.mock import MagicMock, patch
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine, event
+from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import StaticPool
 
-from app.main import create_app
-from app.database import Base, get_db
-from app.modules.auth.service import create_access_token
-from app.modules.auth.models import User
-from app.modules.auth.schemas import SignupRequest
-from app.modules.ai.rate_limiter import get_rate_limiter, RateLimiter
-
-TEST_DB_URL = "sqlite+aiosqlite:///:memory:"
+# Use SQLite for tests (no PostgreSQL needed)
+TEST_DB_URL = "sqlite:///:memory:"
 
 
-@pytest_asyncio.fixture(scope="function")
-async def test_engine():
-    engine = create_async_engine(
+@pytest.fixture(scope="session")
+def engine():
+    """Create a single SQLite engine for the entire test session."""
+    from app.database import Base
+    # Import all models so tables are created
+    from app.modules.auth.models import User  # noqa
+    from app.modules.posts.models import Post, Tag, PostTag, AIUsageLog  # noqa
+
+    engine = create_engine(
         TEST_DB_URL,
         connect_args={"check_same_thread": False},
         poolclass=StaticPool,
     )
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+
+    # Enable foreign key support in SQLite
+    @event.listens_for(engine, "connect")
+    def set_sqlite_pragma(dbapi_connection, connection_record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
+    Base.metadata.create_all(bind=engine)
     yield engine
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-    await engine.dispose()
+    Base.metadata.drop_all(bind=engine)
 
 
-@pytest_asyncio.fixture(scope="function")
-async def db_session(test_engine) -> AsyncGenerator[AsyncSession, None]:
-    session_factory = async_sessionmaker(
-        bind=test_engine,
-        class_=AsyncSession,
-        expire_on_commit=False,
-    )
-    async with session_factory() as session:
-        yield session
+@pytest.fixture()
+def db(engine) -> Session:
+    """Provide a transactional test database session that rolls back after each test."""
+    connection = engine.connect()
+    transaction = connection.begin()
+    TestSessionLocal = sessionmaker(bind=connection, autocommit=False, autoflush=False)
+    session = TestSessionLocal()
+
+    yield session
+
+    session.close()
+    transaction.rollback()
+    connection.close()
 
 
-def _make_session_factory(engine):
-    return async_sessionmaker(
-        bind=engine,
-        class_=AsyncSession,
-        expire_on_commit=False,
-    )
+@pytest.fixture()
+def client(db):
+    """FastAPI TestClient with DB and Redis mocked."""
+    from app.main import app
+    from app.database import get_db
+
+    def override_get_db():
+        yield db
+
+    app.dependency_overrides[get_db] = override_get_db
+
+    # Mock Redis so tests don't need a live Redis instance
+    with patch("app.modules.ai.rate_limiter._get_redis") as mock_redis_factory:
+        mock_redis = MagicMock()
+        # Simulate pipeline that returns [0, 0, ...] (no rate-limit breach)
+        mock_pipeline = MagicMock()
+        mock_pipeline.execute.return_value = [0, 0, 0, 0]
+        mock_redis.pipeline.return_value = mock_pipeline
+        mock_redis.zrange.return_value = []
+        mock_redis_factory.return_value = mock_redis
+
+        with TestClient(app, raise_server_exceptions=True) as c:
+            yield c
+
+    app.dependency_overrides.clear()
 
 
-def _make_db_override(session_factory):
-    async def override_get_db():
-        async with session_factory() as session:
-            try:
-                yield session
-                await session.commit()
-            except Exception:
-                await session.rollback()
-                raise
-    return override_get_db
+# ── Auth helpers ───────────────────────────────────────────────────────────
+
+@pytest.fixture()
+def registered_user(client):
+    """Register a user and return (user_data, token)."""
+    payload = {
+        "email": "test@example.com",
+        "password": "password123",
+        "display_name": "Test User",
+    }
+    resp = client.post("/auth/signup", json=payload)
+    assert resp.status_code == 201, resp.text
+    data = resp.json()
+    return data["user"], data["access_token"]
 
 
-def _make_permissive_rate_limiter():
-    mock_limiter = AsyncMock(spec=RateLimiter)
-    mock_limiter.check = AsyncMock(return_value=(True, 0))
-
-    async def _allow():
-        return mock_limiter
-
-    return _allow
-
-
-@pytest_asyncio.fixture(scope="function")
-async def client(test_engine) -> AsyncGenerator[AsyncClient, None]:
-    session_factory = _make_session_factory(test_engine)
-    app = create_app()
-    app.dependency_overrides[get_db] = _make_db_override(session_factory)
-    app.dependency_overrides[get_rate_limiter] = _make_permissive_rate_limiter()
-
-    async with AsyncClient(
-        transport=ASGITransport(app=app),
-        base_url="http://test",
-    ) as ac:
-        yield ac
-
-
-@pytest_asyncio.fixture(scope="function")
-async def rate_limited_client(test_engine) -> AsyncGenerator[AsyncClient, None]:
-    session_factory = _make_session_factory(test_engine)
-    app = create_app()
-    app.dependency_overrides[get_db] = _make_db_override(session_factory)
-
-    mock_limiter = AsyncMock(spec=RateLimiter)
-    mock_limiter.check = AsyncMock(return_value=(False, 3600))
-
-    async def _block():
-        return mock_limiter
-
-    app.dependency_overrides[get_rate_limiter] = _block
-
-    async with AsyncClient(
-        transport=ASGITransport(app=app),
-        base_url="http://test",
-    ) as ac:
-        yield ac
-
-
-@pytest_asyncio.fixture(scope="function")
-async def test_user(db_session: AsyncSession) -> User:
-    from app.modules.auth.service import create_user
-    data = SignupRequest(
-        email="test@example.com",
-        password="testpassword123",
-        display_name="Test User",
-    )
-    user = await create_user(db_session, data)
-    await db_session.commit()
-    return user
-
-
-@pytest.fixture
-def user_token(test_user: User) -> str:
-    return create_access_token(str(test_user.id))
-
-
-@pytest.fixture
-def auth_headers(user_token: str) -> dict:
-    return {"Authorization": f"Bearer {user_token}"}
+@pytest.fixture()
+def auth_headers(registered_user):
+    """Return Authorization headers for the registered user."""
+    _, token = registered_user
+    return {"Authorization": f"Bearer {token}"}
