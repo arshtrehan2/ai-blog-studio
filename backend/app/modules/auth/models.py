@@ -1,9 +1,8 @@
 import uuid
 from sqlalchemy import Column, String, Boolean, Text, DateTime
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
-from app.database import Base
+from ...database import Base
 
 
 class User(Base):
@@ -22,7 +21,3 @@ class User(Base):
         onupdate=func.now(),
         nullable=False,
     )
-
-    # Relationships
-    posts = relationship("Post", back_populates="author", cascade="all, delete-orphan")
-    ai_usage_logs = relationship("AIUsageLog", back_populates="user", cascade="all, delete-orphan")

@@ -1,10 +1,10 @@
 from pydantic import BaseModel, EmailStr, field_validator
-from typing import Optional
-from datetime import datetime
 from uuid import UUID
+from datetime import datetime
+from typing import Optional
 
 
-class SignupRequest(BaseModel):
+class UserCreate(BaseModel):
     email: EmailStr
     password: str
     display_name: str
@@ -20,11 +20,11 @@ class SignupRequest(BaseModel):
     @classmethod
     def display_name_not_empty(cls, v: str) -> str:
         if not v.strip():
-            raise ValueError("Display name cannot be empty")
+            raise ValueError("Display name must not be empty")
         return v.strip()
 
 
-class LoginRequest(BaseModel):
+class UserLogin(BaseModel):
     email: EmailStr
     password: str
 
@@ -43,7 +43,3 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserResponse
-
-
-class MessageResponse(BaseModel):
-    message: str
