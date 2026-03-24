@@ -1,50 +1,47 @@
 # Python
 __pycache__/
-*.py[cod]
+*.pyc
 *.pyo
 *.pyd
 .Python
-*.egg
-*.egg-info/
-dist/
 build/
-.env
-.venv
+dist/
+*.egg-info/
+.eggs/
+.venv/
 venv/
-*.pyc
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
+env/
+.env
+*.db
+*.sqlite3
 
 # Alembic
-alembic/versions/*.pyc
+alembic/versions/__pycache__/
 
 # Node
 node_modules/
 .next/
 out/
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# OS
-.DS_Store
-Thumbs.db
-
-# IDEs
-.idea/
-.vscode/
-*.swp
-*.swo
+.npm
+*.tgz
 
 # Docker
-*.tar
+.dockerignore
 
-# Test coverage
-htmlcov/
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Coverage
 .coverage
+htmlcov/
+.pytest_cache/
 coverage.xml
+
+# Secrets
+*.env
+.env.local
+.env.production
