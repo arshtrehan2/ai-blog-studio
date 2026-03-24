@@ -1,8 +1,13 @@
 import uuid
-from sqlalchemy import Column, String, Boolean, Text, DateTime
+from datetime import datetime, timezone
+from sqlalchemy import Boolean, Column, DateTime, String, Text
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.sql import func
-from ...database import Base
+from sqlalchemy.orm import relationship
+from app.database import Base
+
+
+def utcnow():
+    return datetime.now(timezone.utc)
 
 
 class User(Base):
@@ -14,10 +19,12 @@ class User(Base):
     display_name = Column(String(100), nullable=False)
     bio = Column(Text, nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at = Column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        onupdate=func.now(),
-        nullable=False,
-    )
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False)
+
+    # Relationships
+    posts = relationship("Post", back_populates="author", cascade="all, delete-orphan")
+    ai_usage_logs = relationship("AIUsageLog", back_populates="user", cascade="all, delete-orphan")
+
+    def __repr__(self) -> str:
+        return f"<User id={self.id} email={self.email}>"

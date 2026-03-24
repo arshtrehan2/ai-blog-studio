@@ -1,76 +1,120 @@
-from sqlalchemy.orm import Session
-from passlib.context import CryptContext
-from jose import JWTError, jwt
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
+from uuid import UUID
 
+from jose import JWTError, jwt
+from passlib.context import CryptContext
+from sqlalchemy.orm import Session
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+
+from app.database import get_db
+from app.config import get_settings
 from .models import User
-from .schemas import UserCreate
-from ...config import settings
+from .schemas import SignupRequest, LoginRequest
 
+settings = get_settings()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+bearer_scheme = HTTPBearer(auto_error=False)
 
 
-def get_password_hash(password: str) -> str:
-    return pwd_context.hash(password)
+# ── Password helpers ─────────────────────────────────────────────────────────
+
+def hash_password(plain: str) -> str:
+    return pwd_context.hash(plain)
 
 
-def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
+def verify_password(plain: str, hashed: str) -> bool:
+    return pwd_context.verify(plain, hashed)
 
 
-def create_access_token(
-    data: dict, expires_delta: Optional[timedelta] = None
-) -> str:
-    to_encode = data.copy()
-    expire = datetime.utcnow() + (
-        expires_delta
-        if expires_delta
-        else timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+# ── JWT helpers ───────────────────────────────────────────────────────────────
+
+def create_access_token(subject: str) -> str:
+    expire = datetime.now(timezone.utc) + timedelta(
+        minutes=settings.access_token_expire_minutes
     )
-    to_encode.update({"exp": expire})
     return jwt.encode(
-        to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM
+        {"sub": subject, "exp": expire},
+        settings.jwt_secret_key,
+        algorithm=settings.jwt_algorithm,
     )
 
+
+def decode_token(token: str) -> Optional[str]:
+    try:
+        payload = jwt.decode(
+            token,
+            settings.jwt_secret_key,
+            algorithms=[settings.jwt_algorithm],
+        )
+        return payload.get("sub")
+    except JWTError:
+        return None
+
+
+# ── DB helpers ────────────────────────────────────────────────────────────────
 
 def get_user_by_email(db: Session, email: str) -> Optional[User]:
-    return db.query(User).filter(User.email == email).first()
+    return db.query(User).filter(User.email == email.lower()).first()
 
 
-def get_user_by_id(db: Session, user_id: str) -> Optional[User]:
+def get_user_by_id(db: Session, user_id: UUID) -> Optional[User]:
     return db.query(User).filter(User.id == user_id).first()
 
 
-def create_user(db: Session, user_data: UserCreate) -> User:
-    db_user = User(
-        email=user_data.email,
-        password_hash=get_password_hash(user_data.password),
-        display_name=user_data.display_name,
-    )
-    db.add(db_user)
-    db.commit()
-    db.refresh(db_user)
-    return db_user
+# ── Auth operations ───────────────────────────────────────────────────────────
 
-
-def authenticate_user(db: Session, email: str, password: str) -> Optional[User]:
-    user = get_user_by_email(db, email)
-    if not user:
-        return None
-    if not verify_password(password, user.password_hash):
-        return None
-    return user
-
-
-def get_current_user_from_token(db: Session, token: str) -> Optional[User]:
-    try:
-        payload = jwt.decode(
-            token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM]
+def signup(db: Session, payload: SignupRequest) -> tuple[User, str]:
+    if get_user_by_email(db, payload.email):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Email already registered",
         )
-        user_id: str = payload.get("sub")
-        if user_id is None:
-            return None
-    except JWTError:
-        return None
-    return get_user_by_id(db, user_id)
+    user = User(
+        email=payload.email.lower(),
+        password_hash=hash_password(payload.password),
+        display_name=payload.display_name,
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    token = create_access_token(str(user.id))
+    return user, token
+
+
+def login(db: Session, payload: LoginRequest) -> tuple[User, str]:
+    user = get_user_by_email(db, payload.email)
+    if not user or not verify_password(payload.password, user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid credentials",
+        )
+    token = create_access_token(str(user.id))
+    return user, token
+
+
+# ── Dependency ────────────────────────────────────────────────────────────────
+
+def get_current_user(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
+    db: Session = Depends(get_db),
+) -> User:
+    if not credentials:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+        )
+    user_id = decode_token(credentials.credentials)
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired token",
+        )
+    user = get_user_by_id(db, user_id)
+    if not user or not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found or inactive",
+        )
+    return user
