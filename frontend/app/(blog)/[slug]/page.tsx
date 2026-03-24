@@ -1,96 +1,62 @@
-import { postsApi } from "@/lib/api";
+import { postsAPI } from "@/lib/api";
 import ReactMarkdown from "react-markdown";
 import type { Metadata } from "next";
-import Link from "next/link";
 import { notFound } from "next/navigation";
 
-export const revalidate = 60;
-
-type Props = { params: { slug: string } };
+interface Props { params: { slug: string }; }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   try {
-    const post = await postsApi.get(params.slug);
+    const post = await postsAPI.get(params.slug);
     return {
-      title: post.seo_title ?? post.title,
-      description: post.seo_description ?? post.summary ?? undefined,
+      title: post.seo_title || post.title,
+      description: post.seo_description || post.summary || undefined,
       openGraph: {
-        title: post.seo_title ?? post.title,
-        description: post.seo_description ?? post.summary ?? undefined,
+        title: post.seo_title || post.title,
+        description: post.seo_description || post.summary || undefined,
         type: "article",
-        publishedTime: post.published_at,
-        authors: [post.author.display_name],
+        publishedTime: post.published_at || undefined,
+        authors: post.author ? [post.author.display_name] : undefined,
       },
     };
   } catch {
-    return { title: "Post not found" };
+    return { title: "Post Not Found" };
   }
 }
 
 export default async function PostPage({ params }: Props) {
   let post;
-  try {
-    post = await postsApi.get(params.slug);
-  } catch (err: unknown) {
-    const e = err as { status?: number };
-    if (e?.status === 404 || e?.status === 403) notFound();
-    throw err;
-  }
-
+  try { post = await postsAPI.get(params.slug); }
+  catch { notFound(); }
   return (
-    <main className="max-w-3xl mx-auto px-4 py-10">
-      {/* Back link */}
-      <Link
-        href="/"
-        className="text-sm text-blue-600 hover:underline mb-6 inline-block"
-      >
-        ← Back to blog
-      </Link>
-
-      {/* Header */}
+    <div style={{ maxWidth: 760, margin: "0 auto", padding: "48px 24px" }}>
       <article>
-        <header className="mb-8">
-          <h1 className="text-4xl font-bold text-slate-900 mb-3">
-            {post.title}
-          </h1>
-          <div className="flex flex-wrap items-center gap-3 text-sm text-slate-500">
-            <span>By {post.author.display_name}</span>
-            {post.published_at && (
-              <span>
-                ·{" "}
-                {new Date(post.published_at).toLocaleDateString("en-US", {
-                  month: "long",
-                  day: "numeric",
-                  year: "numeric",
-                })}
-              </span>
-            )}
+        <header style={{ marginBottom: 40 }}>
+          <h1 style={{ fontSize: 36, fontWeight: 800, lineHeight: 1.2, marginBottom: 16 }}>{post.title}</h1>
+          <div style={{ display: "flex", gap: 12, alignItems: "center", color: "var(--color-text-muted)", fontSize: 14 }}>
+            {post.author && <span>By <strong>{post.author.display_name}</strong></span>}
+            {post.published_at && <span>{new Date(post.published_at).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}</span>}
           </div>
           {post.tags.length > 0 && (
-            <div className="flex flex-wrap gap-2 mt-4">
-              {post.tags.map((t) => (
-                <Link
-                  key={t}
-                  href={`/?tag=${t}`}
-                  className="inline-block bg-blue-50 text-blue-700 text-xs font-medium px-2.5 py-1 rounded-full hover:bg-blue-100 transition-colors"
-                >
-                  #{t}
-                </Link>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 16 }}>
+              {post.tags.map(tag => (
+                <a key={tag} href={`/?tag=${encodeURIComponent(tag)}`}
+                  style={{ padding: "4px 10px", background: "var(--color-bg-secondary)", border: "1px solid var(--color-border)", borderRadius: 20, fontSize: 13, color: "var(--color-text-muted)" }}>
+                  {tag}
+                </a>
               ))}
             </div>
           )}
           {post.summary && (
-            <p className="mt-4 text-slate-600 italic border-l-4 border-blue-200 pl-4">
+            <p style={{ marginTop: 20, padding: 16, background: "var(--color-bg-secondary)", borderLeft: "4px solid var(--color-primary)", borderRadius: "0 6px 6px 0", color: "var(--color-text-muted)", fontStyle: "italic" }}>
               {post.summary}
             </p>
           )}
         </header>
-
-        {/* Content */}
-        <div className="prose prose-slate max-w-none">
+        <div style={{ lineHeight: 1.8, fontSize: 17 }}>
           <ReactMarkdown>{post.content}</ReactMarkdown>
         </div>
       </article>
-    </main>
+    </div>
   );
 }

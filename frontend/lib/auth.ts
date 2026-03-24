@@ -1,63 +1,46 @@
-import { authApi, type User } from "./api";
+const TOKEN_KEY = "access_token";
+const USER_KEY = "user_info";
 
-// ─── Token helpers (localStorage for access token) ───────────────────────────
-
-export function saveToken(token: string): void {
-  if (typeof window !== "undefined") {
-    localStorage.setItem("access_token", token);
-  }
-}
+export interface StoredUser { id: string; email: string; display_name: string; }
 
 export function getToken(): string | null {
   if (typeof window === "undefined") return null;
-  return localStorage.getItem("access_token");
+  return localStorage.getItem(TOKEN_KEY);
 }
 
-export function removeToken(): void {
-  if (typeof window !== "undefined") {
-    localStorage.removeItem("access_token");
-  }
+export function setToken(token: string): void {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(TOKEN_KEY, token);
+}
+
+export function clearToken(): void {
+  if (typeof window === "undefined") return;
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(USER_KEY);
+}
+
+export function getStoredUser(): StoredUser | null {
+  if (typeof window === "undefined") return null;
+  const raw = localStorage.getItem(USER_KEY);
+  if (!raw) return null;
+  try { return JSON.parse(raw); } catch { return null; }
+}
+
+export function setStoredUser(user: StoredUser): void {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(USER_KEY, JSON.stringify(user));
 }
 
 export function isAuthenticated(): boolean {
-  return !!getToken();
-}
-
-// ─── Auth actions ────────────────────────────────────────────────────────────
-
-export async function login(
-  email: string,
-  password: string
-): Promise<User> {
-  const data = await authApi.login(email, password);
-  saveToken(data.access_token);
-  return data.user;
-}
-
-export async function signup(
-  email: string,
-  password: string,
-  displayName: string
-): Promise<User> {
-  const data = await authApi.signup(email, password, displayName);
-  saveToken(data.access_token);
-  return data.user;
-}
-
-export async function logout(): Promise<void> {
+  const token = getToken();
+  if (!token) return false;
   try {
-    await authApi.logout();
-  } finally {
-    removeToken();
-  }
+    const payload = JSON.parse(atob(token.split(".")[1]));
+    return payload.exp > Math.floor(Date.now() / 1000);
+  } catch { return false; }
 }
 
-export async function getCurrentUser(): Promise<User | null> {
-  if (!isAuthenticated()) return null;
-  try {
-    return await authApi.me();
-  } catch {
-    removeToken();
-    return null;
-  }
+export function logout(): void {
+  clearToken();
+  if (typeof window !== "undefined") window.location.href = "/login";
 }

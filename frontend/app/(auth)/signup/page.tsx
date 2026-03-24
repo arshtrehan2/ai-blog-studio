@@ -1,110 +1,65 @@
 "use client";
-
 import { useState, FormEvent } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { signup } from "@/lib/auth";
+import { useRouter } from "next/navigation";
+import { authAPI } from "@/lib/api";
+import { setToken, setStoredUser } from "@/lib/auth";
 
 export default function SignupPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
-  const [error, setError] = useState("");
+  const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
-    setError("");
-    if (password.length < 8) {
-      setError("Password must be at least 8 characters.");
-      return;
-    }
+    setError(null);
+    if (password.length < 8) { setError("Password must be at least 8 characters."); return; }
     setLoading(true);
     try {
-      await signup(email, password, displayName);
+      const data = await authAPI.signup({ email, password, display_name: displayName });
+      setToken(data.access_token);
+      setStoredUser({ id: data.user.id, email: data.user.email, display_name: data.user.display_name });
       router.push("/");
-    } catch (err: unknown) {
-      const e = err as { detail?: string };
-      setError(e?.detail ?? "Sign up failed. Please try again.");
+    } catch {
+      setError("Failed to create account. Please try again.");
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <main className="min-h-screen flex items-center justify-center bg-slate-50 px-4">
-      <div className="w-full max-w-md bg-white rounded-2xl shadow-lg p-8">
-        <h1 className="text-2xl font-bold text-slate-900 mb-2">
-          Create your account
-        </h1>
-        <p className="text-slate-500 mb-6 text-sm">
-          Start writing AI-powered blog posts today.
-        </p>
-
-        {error && (
-          <div className="mb-4 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm px-4 py-3">
-            {error}
-          </div>
-        )}
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">
-              Display Name
-            </label>
-            <input
-              type="text"
-              required
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="Jane Doe"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">
-              Email
-            </label>
-            <input
-              type="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="you@example.com"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-1">
-              Password
-            </label>
-            <input
-              type="password"
-              required
-              minLength={8}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="Min. 8 characters"
-            />
-          </div>
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-semibold rounded-lg px-4 py-2 text-sm transition-colors"
-          >
-            {loading ? "Creating account…" : "Create account"}
-          </button>
-        </form>
-
-        <p className="mt-6 text-center text-sm text-slate-500">
-          Already have an account?{" "}
-          <Link href="/login" className="text-blue-600 hover:underline font-medium">
-            Sign in
-          </Link>
-        </p>
-      </div>
-    </main>
+    <div style={{ maxWidth: 400, margin: "80px auto", padding: "0 24px" }}>
+      <h1 style={{ fontSize: 28, fontWeight: 700, marginBottom: 8 }}>Create account</h1>
+      <p style={{ color: "var(--color-text-muted)", marginBottom: 32 }}>Join AI Blog Studio and start writing</p>
+      <form onSubmit={handleSubmit}>
+        {error && <div role="alert" style={{ padding: "12px 16px", background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 6, color: "var(--color-error)", marginBottom: 16, fontSize: 14 }}>{error}</div>}
+        <div style={{ marginBottom: 16 }}>
+          <label htmlFor="displayName" style={{ display: "block", marginBottom: 6, fontWeight: 500 }}>Display name</label>
+          <input id="displayName" type="text" value={displayName} onChange={e => setDisplayName(e.target.value)} required
+            style={{ width: "100%", padding: "10px 12px", border: "1px solid var(--color-border)", borderRadius: 6, fontSize: 16 }} />
+        </div>
+        <div style={{ marginBottom: 16 }}>
+          <label htmlFor="email" style={{ display: "block", marginBottom: 6, fontWeight: 500 }}>Email</label>
+          <input id="email" type="email" value={email} onChange={e => setEmail(e.target.value)} required autoComplete="email"
+            style={{ width: "100%", padding: "10px 12px", border: "1px solid var(--color-border)", borderRadius: 6, fontSize: 16 }} />
+        </div>
+        <div style={{ marginBottom: 24 }}>
+          <label htmlFor="password" style={{ display: "block", marginBottom: 6, fontWeight: 500 }}>Password</label>
+          <input id="password" type="password" value={password} onChange={e => setPassword(e.target.value)} required minLength={8}
+            style={{ width: "100%", padding: "10px 12px", border: "1px solid var(--color-border)", borderRadius: 6, fontSize: 16 }} />
+          <p style={{ fontSize: 12, color: "var(--color-text-muted)", marginTop: 4 }}>At least 8 characters</p>
+        </div>
+        <button type="submit" disabled={loading}
+          style={{ width: "100%", padding: 12, background: loading ? "#93c5fd" : "var(--color-primary)", color: "white", border: "none", borderRadius: 6, fontSize: 16, fontWeight: 600 }}>
+          {loading ? "Creating account..." : "Create account"}
+        </button>
+      </form>
+      <p style={{ marginTop: 24, textAlign: "center", color: "var(--color-text-muted)" }}>
+        Already have an account? <Link href="/login">Sign in</Link>
+      </p>
+    </div>
   );
 }
