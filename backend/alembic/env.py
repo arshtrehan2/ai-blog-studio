@@ -1,31 +1,33 @@
-from logging.config import fileConfig
-from sqlalchemy import engine_from_config, pool
-from alembic import context
 import os
 import sys
+from logging.config import fileConfig
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from sqlalchemy import engine_from_config, pool
+from alembic import context
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+
+from app.config import settings
 from app.database import Base
-from app.modules.auth.models import User  # noqa: F401
-from app.modules.posts.models import Post, Tag, post_tags  # noqa: F401
-from app.modules.ai.models import AIUsageLog  # noqa: F401
+from app.modules.auth.models import User  # noqa
+from app.modules.posts.models import Post, Tag, AIUsageLog, post_tags  # noqa
 
 config = context.config
+config.set_main_option(
+    "sqlalchemy.url",
+    settings.DATABASE_URL.replace("postgresql://", "postgresql+psycopg2://"),
+)
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 target_metadata = Base.metadata
 
-DATABASE_URL = os.getenv(
-    "DATABASE_URL", config.get_main_option("sqlalchemy.url")
-)
-
 
 def run_migrations_offline() -> None:
+    url = config.get_main_option("sqlalchemy.url")
     context.configure(
-        url=DATABASE_URL,
+        url=url,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
@@ -35,17 +37,13 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
-    configuration = config.get_section(config.config_ini_section, {})
-    configuration["sqlalchemy.url"] = DATABASE_URL
     connectable = engine_from_config(
-        configuration,
+        config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )
     with connectable.connect() as connection:
-        context.configure(
-            connection=connection, target_metadata=target_metadata
-        )
+        context.configure(connection=connection, target_metadata=target_metadata)
         with context.begin_transaction():
             context.run_migrations()
 
