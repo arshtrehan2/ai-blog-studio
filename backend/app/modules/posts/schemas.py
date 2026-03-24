@@ -1,27 +1,49 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from typing import Optional, List
 from datetime import datetime
-import uuid
+from uuid import UUID
+from enum import Enum
 
 
-class AuthorInfo(BaseModel):
-    id: uuid.UUID
+class PostStatus(str, Enum):
+    draft = "draft"
+    published = "published"
+
+
+class AuthorResponse(BaseModel):
+    id: UUID
     display_name: str
 
     model_config = {"from_attributes": True}
 
 
-class PostCreate(BaseModel):
+class PostCreateRequest(BaseModel):
     title: str
     content: str
     tags: Optional[List[str]] = []
-    status: str = "draft"
+    status: PostStatus = PostStatus.draft
     summary: Optional[str] = None
     seo_title: Optional[str] = None
     seo_description: Optional[str] = None
 
+    @field_validator("title")
+    @classmethod
+    def title_not_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("Title cannot be empty")
+        if len(v) > 255:
+            raise ValueError("Title must be at most 255 characters")
+        return v.strip()
 
-class PostUpdate(BaseModel):
+    @field_validator("content")
+    @classmethod
+    def content_not_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("Content cannot be empty")
+        return v
+
+
+class PostUpdateRequest(BaseModel):
     title: Optional[str] = None
     content: Optional[str] = None
     tags: Optional[List[str]] = None
@@ -29,9 +51,20 @@ class PostUpdate(BaseModel):
     seo_title: Optional[str] = None
     seo_description: Optional[str] = None
 
+    @field_validator("title")
+    @classmethod
+    def title_not_empty(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None:
+            if not v.strip():
+                raise ValueError("Title cannot be empty")
+            if len(v) > 255:
+                raise ValueError("Title must be at most 255 characters")
+            return v.strip()
+        return v
+
 
 class PostResponse(BaseModel):
-    id: uuid.UUID
+    id: UUID
     title: str
     slug: str
     content: str
@@ -40,8 +73,8 @@ class PostResponse(BaseModel):
     summary: Optional[str] = None
     seo_title: Optional[str] = None
     seo_description: Optional[str] = None
-    author_id: Optional[uuid.UUID] = None
-    author: Optional[AuthorInfo] = None
+    author_id: Optional[UUID] = None
+    author: Optional[AuthorResponse] = None
     published_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
@@ -50,12 +83,13 @@ class PostResponse(BaseModel):
 
 
 class PostListItem(BaseModel):
-    id: uuid.UUID
+    id: UUID
     title: str
     slug: str
     summary: Optional[str] = None
     tags: List[str] = []
-    author: AuthorInfo
+    author: Optional[AuthorResponse] = None
+    published_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
 
@@ -71,9 +105,7 @@ class PostListResponse(BaseModel):
 
 
 class PublishResponse(BaseModel):
-    id: uuid.UUID
+    id: UUID
     status: str
     published_at: datetime
     slug: str
-
-    model_config = {"from_attributes": True}

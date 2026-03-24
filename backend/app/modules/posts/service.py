@@ -1,176 +1,200 @@
-import uuid
-from sqlalchemy.orm import Session
-from fastapi import HTTPException
+import math
+from typing import Optional, List, Tuple
+from uuid import UUID
+from datetime import datetime, timezone
+
 from slugify import slugify
-from datetime import datetime
-from typing import Optional, List
-from .models import Post, Tag
-from .schemas import PostCreate, PostUpdate
-from ...middleware.sanitizer import sanitize_content
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, func, and_, delete, insert
+from sqlalchemy.orm import selectinload
+import shortuuid
+
+from app.modules.posts.models import Post, Tag, AIUsageLog, post_tags
+from app.modules.posts.schemas import PostCreateRequest, PostUpdateRequest
 
 
-def generate_slug(title: str, db: Session) -> str:
-    base_slug = slugify(title)
+def _generate_slug(title: str) -> str:
+    base = slugify(title)
+    if not base:
+        base = "untitled"
+    return base
+
+
+async def _ensure_unique_slug(db: AsyncSession, base_slug: str, exclude_id: Optional[UUID] = None) -> str:
     slug = base_slug
-    while (
-        db.query(Post)
-        .filter(Post.slug == slug, Post.deleted_at.is_(None))
-        .first()
-    ):
-        slug = f"{base_slug}-{str(uuid.uuid4())[:8]}"
-    return slug
+    while True:
+        query = select(Post).where(
+            and_(Post.slug == slug, Post.deleted_at.is_(None))
+        )
+        if exclude_id:
+            query = query.where(Post.id != exclude_id)
+        result = await db.execute(query)
+        existing = result.scalar_one_or_none()
+        if not existing:
+            return slug
+        slug = f"{base_slug}-{shortuuid.ShortUUID().random(length=6).lower()}"
 
 
-def get_or_create_tags(db: Session, tag_names: List[str]) -> List[Tag]:
+async def _get_or_create_tags(db: AsyncSession, tag_names: List[str]) -> List[Tag]:
     tags = []
     for name in tag_names:
-        name = name.lower().strip()
+        name = name.strip().lower()
         if not name:
             continue
-        tag = db.query(Tag).filter(Tag.name == name).first()
+        tag_slug = slugify(name)
+        result = await db.execute(select(Tag).where(Tag.name == name))
+        tag = result.scalar_one_or_none()
         if not tag:
-            tag = Tag(name=name, slug=slugify(name))
+            tag = Tag(name=name, slug=tag_slug)
             db.add(tag)
-            db.flush()
+            await db.flush()
+            await db.refresh(tag)
         tags.append(tag)
     return tags
 
 
-def create_post(db: Session, post_data: PostCreate, author_id: str) -> Post:
-    sanitized_content = sanitize_content(post_data.content)
-    slug = generate_slug(post_data.title, db)
+async def _set_post_tags(db: AsyncSession, post_id: UUID, tag_names: List[str]) -> None:
+    """Replace all tags for a post using explicit join-table management."""
+    await db.execute(delete(post_tags).where(post_tags.c.post_id == post_id))
+    if not tag_names:
+        return
+    tags = await _get_or_create_tags(db, tag_names)
+    if tags:
+        await db.execute(
+            insert(post_tags),
+            [{"post_id": post_id, "tag_id": tag.id} for tag in tags],
+        )
 
+
+async def _load_post_full(db: AsyncSession, post_id: UUID) -> Optional[Post]:
+    result = await db.execute(
+        select(Post)
+        .options(selectinload(Post.tags), selectinload(Post.author))
+        .where(and_(Post.id == post_id, Post.deleted_at.is_(None)))
+    )
+    return result.scalar_one_or_none()
+
+
+async def create_post(db: AsyncSession, data: PostCreateRequest, author_id: UUID) -> Post:
+    base_slug = _generate_slug(data.title)
+    slug = await _ensure_unique_slug(db, base_slug)
     post = Post(
         author_id=author_id,
-        title=post_data.title,
+        title=data.title,
         slug=slug,
-        content=sanitized_content,
-        status=post_data.status,
-        summary=post_data.summary,
-        seo_title=post_data.seo_title,
-        seo_description=post_data.seo_description,
+        content=data.content,
+        status=data.status.value,
+        summary=data.summary,
+        seo_title=data.seo_title,
+        seo_description=data.seo_description,
+        published_at=datetime.now(timezone.utc) if data.status.value == "published" else None,
     )
-
-    if post_data.tags:
-        post.tags = get_or_create_tags(db, post_data.tags)
-
-    if post_data.status == "published":
-        post.published_at = datetime.utcnow()
-
     db.add(post)
-    db.commit()
-    db.refresh(post)
-    return post
+    await db.flush()
+    await db.refresh(post)
+    if data.tags:
+        await _set_post_tags(db, post.id, data.tags)
+    return await _load_post_full(db, post.id)
 
 
-def get_posts(
-    db: Session,
+async def get_post_by_id_or_slug(db: AsyncSession, id_or_slug: str) -> Optional[Post]:
+    try:
+        uid = UUID(id_or_slug)
+        result = await db.execute(
+            select(Post)
+            .options(selectinload(Post.tags), selectinload(Post.author))
+            .where(and_(Post.id == uid, Post.deleted_at.is_(None)))
+        )
+        post = result.scalar_one_or_none()
+        if post:
+            return post
+    except ValueError:
+        pass
+    result = await db.execute(
+        select(Post)
+        .options(selectinload(Post.tags), selectinload(Post.author))
+        .where(and_(Post.slug == id_or_slug, Post.deleted_at.is_(None)))
+    )
+    return result.scalar_one_or_none()
+
+
+async def list_posts(
+    db: AsyncSession,
     page: int = 1,
     page_size: int = 20,
     tag: Optional[str] = None,
-    author_id: Optional[str] = None,
-) -> dict:
-    query = db.query(Post).filter(
-        Post.status == "published",
-        Post.deleted_at.is_(None),
+    author_id: Optional[UUID] = None,
+) -> Tuple[List[Post], int]:
+    query = (
+        select(Post)
+        .options(selectinload(Post.tags), selectinload(Post.author))
+        .where(and_(Post.status == "published", Post.deleted_at.is_(None)))
     )
-
     if tag:
-        query = query.join(Post.tags).filter(Tag.name == tag)
-
+        tag_slug = slugify(tag)
+        query = query.join(Post.tags).where(Tag.slug == tag_slug)
     if author_id:
-        query = query.filter(Post.author_id == author_id)
-
-    total = query.count()
-    posts = (
-        query.order_by(Post.published_at.desc())
-        .offset((page - 1) * page_size)
-        .limit(page_size)
-        .all()
-    )
-
-    return {
-        "items": posts,
-        "total": total,
-        "page": page,
-        "page_size": page_size,
-        "total_pages": max(1, (total + page_size - 1) // page_size),
-    }
+        query = query.where(Post.author_id == author_id)
+    count_query = select(func.count()).select_from(query.subquery())
+    total_result = await db.execute(count_query)
+    total = total_result.scalar_one()
+    offset = (page - 1) * page_size
+    query = query.order_by(Post.published_at.desc()).offset(offset).limit(page_size)
+    result = await db.execute(query)
+    posts = result.scalars().unique().all()
+    return list(posts), total
 
 
-def get_post(db: Session, post_id: str, current_user=None) -> Post:
-    try:
-        uid = uuid.UUID(post_id)
-        post = (
-            db.query(Post)
-            .filter(Post.id == uid, Post.deleted_at.is_(None))
-            .first()
-        )
-    except ValueError:
-        post = (
-            db.query(Post)
-            .filter(Post.slug == post_id, Post.deleted_at.is_(None))
-            .first()
-        )
-
-    if not post:
-        raise HTTPException(status_code=404, detail="Post not found")
-
-    if post.status != "published":
-        if not current_user or str(post.author_id) != str(current_user.id):
-            raise HTTPException(status_code=403, detail="Access denied")
-
-    return post
+async def update_post(db: AsyncSession, post: Post, data: PostUpdateRequest) -> Post:
+    if data.title is not None:
+        post.title = data.title
+        if post.status != "published":
+            base_slug = _generate_slug(data.title)
+            post.slug = await _ensure_unique_slug(db, base_slug, exclude_id=post.id)
+    if data.content is not None:
+        post.content = data.content
+    if data.summary is not None:
+        post.summary = data.summary
+    if data.seo_title is not None:
+        post.seo_title = data.seo_title
+    if data.seo_description is not None:
+        post.seo_description = data.seo_description
+    await db.flush()
+    if data.tags is not None:
+        await _set_post_tags(db, post.id, data.tags)
+    return await _load_post_full(db, post.id)
 
 
-def update_post(
-    db: Session, post_id: str, post_data: PostUpdate, current_user
-) -> Post:
-    post = get_post(db, post_id, current_user)
-
-    if str(post.author_id) != str(current_user.id):
-        raise HTTPException(status_code=403, detail="Access denied")
-
-    if post_data.title is not None:
-        post.title = post_data.title
-    if post_data.content is not None:
-        post.content = sanitize_content(post_data.content)
-    if post_data.summary is not None:
-        post.summary = post_data.summary
-    if post_data.seo_title is not None:
-        post.seo_title = post_data.seo_title
-    if post_data.seo_description is not None:
-        post.seo_description = post_data.seo_description
-    if post_data.tags is not None:
-        post.tags = get_or_create_tags(db, post_data.tags)
-
-    post.updated_at = datetime.utcnow()
-    db.commit()
-    db.refresh(post)
-    return post
+async def delete_post(db: AsyncSession, post: Post) -> None:
+    post.deleted_at = datetime.now(timezone.utc)
+    await db.flush()
 
 
-def delete_post(db: Session, post_id: str, current_user) -> None:
-    post = get_post(db, post_id, current_user)
-
-    if str(post.author_id) != str(current_user.id):
-        raise HTTPException(status_code=403, detail="Access denied")
-
-    post.deleted_at = datetime.utcnow()
-    db.commit()
-
-
-def publish_post(db: Session, post_id: str, current_user) -> Post:
-    post = get_post(db, post_id, current_user)
-
-    if str(post.author_id) != str(current_user.id):
-        raise HTTPException(status_code=403, detail="Access denied")
-
+async def publish_post(db: AsyncSession, post: Post) -> Post:
     if post.status == "published":
-        raise HTTPException(status_code=400, detail="Post is already published")
-
+        return post
     post.status = "published"
-    post.published_at = datetime.utcnow()
-    db.commit()
-    db.refresh(post)
-    return post
+    post.published_at = datetime.now(timezone.utc)
+    await db.flush()
+    return await _load_post_full(db, post.id)
+
+
+async def log_ai_usage(
+    db: AsyncSession,
+    user_id: UUID,
+    tool: str,
+    input_tokens: int,
+    output_tokens: int,
+    latency_ms: Optional[int] = None,
+    post_id: Optional[UUID] = None,
+) -> None:
+    log = AIUsageLog(
+        user_id=user_id,
+        tool=tool,
+        input_tokens=str(input_tokens),
+        output_tokens=str(output_tokens),
+        latency_ms=str(latency_ms) if latency_ms is not None else None,
+        post_id=post_id,
+    )
+    db.add(log)
+    await db.flush()
