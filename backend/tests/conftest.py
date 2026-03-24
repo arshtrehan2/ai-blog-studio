@@ -1,106 +1,99 @@
-"""
-pytest configuration and shared fixtures for AI Blog Studio backend tests.
+import asyncio
+import uuid
+from typing import AsyncGenerator
 
-Uses SQLite in-memory database to avoid needing a live PostgreSQL instance.
-Redis calls are mocked via unittest.mock.
-"""
 import pytest
-from unittest.mock import MagicMock, patch
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, event
-from sqlalchemy.orm import sessionmaker, Session
-from sqlalchemy.pool import StaticPool
+import pytest_asyncio
+from httpx import AsyncClient, ASGITransport
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 
-# Use SQLite for tests (no PostgreSQL needed)
-TEST_DB_URL = "sqlite:///:memory:"
+from app.main import app
+from app.database import Base, get_db
+from app.config import get_settings
+from app.modules.auth.service import create_access_token, hash_password
+from app.modules.auth.models import User
+
+settings = get_settings()
+
+TEST_DATABASE_URL = "sqlite+aiosqlite:///./test_blog.db"
 
 
-@pytest.fixture(scope="session")
-def engine():
-    """Create a single SQLite engine for the entire test session."""
-    from app.database import Base
-    # Import all models so tables are created
-    from app.modules.auth.models import User  # noqa
-    from app.modules.posts.models import Post, Tag, PostTag, AIUsageLog  # noqa
-
-    engine = create_engine(
-        TEST_DB_URL,
+@pytest_asyncio.fixture(scope="session")
+async def test_engine():
+    engine = create_async_engine(
+        TEST_DATABASE_URL,
+        echo=False,
         connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
     )
-
-    # Enable foreign key support in SQLite
-    @event.listens_for(engine, "connect")
-    def set_sqlite_pragma(dbapi_connection, connection_record):
-        cursor = dbapi_connection.cursor()
-        cursor.execute("PRAGMA foreign_keys=ON")
-        cursor.close()
-
-    Base.metadata.create_all(bind=engine)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
     yield engine
-    Base.metadata.drop_all(bind=engine)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+    await engine.dispose()
 
 
-@pytest.fixture()
-def db(engine) -> Session:
-    """Provide a transactional test database session that rolls back after each test."""
-    connection = engine.connect()
-    transaction = connection.begin()
-    TestSessionLocal = sessionmaker(bind=connection, autocommit=False, autoflush=False)
-    session = TestSessionLocal()
-
-    yield session
-
-    session.close()
-    transaction.rollback()
-    connection.close()
+@pytest_asyncio.fixture
+async def db_session(test_engine) -> AsyncGenerator[AsyncSession, None]:
+    """Provide a clean database session for each test with rollback."""
+    TestSessionLocal = async_sessionmaker(
+        test_engine, expire_on_commit=False, class_=AsyncSession
+    )
+    async with TestSessionLocal() as session:
+        yield session
+        await session.rollback()
 
 
-@pytest.fixture()
-def client(db):
-    """FastAPI TestClient with DB and Redis mocked."""
-    from app.main import app
-    from app.database import get_db
+@pytest_asyncio.fixture
+async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
+    """Provide a test HTTP client with DB dependency override."""
 
-    def override_get_db():
-        yield db
+    async def override_get_db():
+        yield db_session
 
     app.dependency_overrides[get_db] = override_get_db
-
-    # Mock Redis so tests don't need a live Redis instance
-    with patch("app.modules.ai.rate_limiter._get_redis") as mock_redis_factory:
-        mock_redis = MagicMock()
-        # Simulate pipeline that returns [0, 0, ...] (no rate-limit breach)
-        mock_pipeline = MagicMock()
-        mock_pipeline.execute.return_value = [0, 0, 0, 0]
-        mock_redis.pipeline.return_value = mock_pipeline
-        mock_redis.zrange.return_value = []
-        mock_redis_factory.return_value = mock_redis
-
-        with TestClient(app, raise_server_exceptions=True) as c:
-            yield c
-
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+        yield ac
     app.dependency_overrides.clear()
 
 
-# ── Auth helpers ───────────────────────────────────────────────────────────
-
-@pytest.fixture()
-def registered_user(client):
-    """Register a user and return (user_data, token)."""
-    payload = {
-        "email": "test@example.com",
-        "password": "password123",
-        "display_name": "Test User",
-    }
-    resp = client.post("/auth/signup", json=payload)
-    assert resp.status_code == 201, resp.text
-    data = resp.json()
-    return data["user"], data["access_token"]
+@pytest_asyncio.fixture
+async def test_user(db_session: AsyncSession) -> User:
+    """Create a test user in the database."""
+    user = User(
+        email=f"test_{uuid.uuid4().hex[:8]}@example.com",
+        password_hash=hash_password("password123"),
+        display_name="Test User",
+    )
+    db_session.add(user)
+    await db_session.flush()
+    await db_session.refresh(user)
+    return user
 
 
-@pytest.fixture()
-def auth_headers(registered_user):
-    """Return Authorization headers for the registered user."""
-    _, token = registered_user
+@pytest_asyncio.fixture
+async def test_user2(db_session: AsyncSession) -> User:
+    """Create a second test user."""
+    user = User(
+        email=f"test2_{uuid.uuid4().hex[:8]}@example.com",
+        password_hash=hash_password("password456"),
+        display_name="Test User 2",
+    )
+    db_session.add(user)
+    await db_session.flush()
+    await db_session.refresh(user)
+    return user
+
+
+@pytest.fixture
+def auth_headers(test_user: User) -> dict:
+    """Return auth headers for test_user."""
+    token = create_access_token(test_user.id)
+    return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture
+def auth_headers2(test_user2: User) -> dict:
+    """Return auth headers for test_user2."""
+    token = create_access_token(test_user2.id)
     return {"Authorization": f"Bearer {token}"}
