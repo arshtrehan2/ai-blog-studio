@@ -1,12 +1,9 @@
+import uuid
 from datetime import datetime
-from typing import Optional
-from uuid import UUID
 from pydantic import BaseModel, EmailStr, field_validator
 
 
-# ── Request bodies ──────────────────────────────────────────────────────────
-
-class SignupRequest(BaseModel):
+class UserCreate(BaseModel):
     email: EmailStr
     password: str
     display_name: str
@@ -22,22 +19,20 @@ class SignupRequest(BaseModel):
     @classmethod
     def display_name_not_empty(cls, v: str) -> str:
         if not v.strip():
-            raise ValueError("display_name must not be empty")
+            raise ValueError("Display name cannot be empty")
         return v.strip()
 
 
-class LoginRequest(BaseModel):
+class UserLogin(BaseModel):
     email: EmailStr
     password: str
 
 
-# ── Response bodies ─────────────────────────────────────────────────────────
-
-class UserOut(BaseModel):
-    id: UUID
+class UserResponse(BaseModel):
+    id: uuid.UUID
     email: str
     display_name: str
-    bio: Optional[str] = None
+    bio: str | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -46,8 +41,8 @@ class UserOut(BaseModel):
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
-    user: UserOut
+    user: UserResponse
 
 
-class MessageResponse(BaseModel):
-    message: str
+class TokenData(BaseModel):
+    user_id: str
