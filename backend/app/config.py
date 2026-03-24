@@ -3,29 +3,35 @@ from typing import List
 
 
 class Settings(BaseSettings):
+    # Application
+    APP_NAME: str = "AI Blog Studio"
+    DEBUG: bool = False
+    ALLOWED_ORIGINS: List[str] = ["http://localhost:3000"]
+
     # Database
     DATABASE_URL: str = "postgresql://postgres:dev@localhost/blogstudio"
+    TEST_DATABASE_URL: str = "sqlite+aiosqlite:///./test.db"
 
     # Redis
     REDIS_URL: str = "redis://localhost:6379"
 
     # JWT
-    JWT_SECRET_KEY: str = "change-me-in-production-supersecret-key-32chars"
+    JWT_SECRET_KEY: str = "changeme-super-secret-key"
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
     # Anthropic
-    ANTHROPIC_API_KEY: str = ""
+    ANTHROPIC_API_KEY: str = "sk-ant-placeholder"
+    ANTHROPIC_MODEL: str = "claude-3-5-sonnet-20241022"
 
-    # CORS
-    ALLOWED_ORIGINS: List[str] = ["http://localhost:3000"]
+    # Rate limiting
+    AI_RATE_LIMIT_REQUESTS: int = 20
+    AI_RATE_LIMIT_WINDOW_SECONDS: int = 3600  # 1 hour
 
-    # Rate Limiting
-    AI_RATE_LIMIT: int = 20
-    AI_RATE_LIMIT_WINDOW: int = 3600  # 1 hour in seconds
-
-    model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+    class Config:
+        env_file = ".env"
+        case_sensitive = True
 
 
 settings = Settings()

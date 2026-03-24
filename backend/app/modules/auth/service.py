@@ -1,95 +1,97 @@
-from sqlalchemy.orm import Session
-from passlib.context import CryptContext
-from jose import JWTError, jwt
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
-from fastapi import HTTPException, status
-from .models import User
-from .schemas import UserCreate
-from ...config import settings
+from uuid import UUID
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+import bcrypt
+from jose import JWTError, jwt
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+
+from app.config import settings
+from app.modules.auth.models import User
+from app.modules.auth.schemas import SignupRequest, LoginRequest
 
 
 def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
+    salt = bcrypt.gensalt()
+    return bcrypt.hashpw(password.encode("utf-8"), salt).decode("utf-8")
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
-
-
-def create_access_token(
-    data: dict, expires_delta: Optional[timedelta] = None
-) -> str:
-    to_encode = data.copy()
-    if expires_delta:
-        expire = datetime.utcnow() + expires_delta
-    else:
-        expire = datetime.utcnow() + timedelta(
-            minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES
-        )
-    to_encode.update({"exp": expire})
-    return jwt.encode(
-        to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM
+    return bcrypt.checkpw(
+        plain_password.encode("utf-8"),
+        hashed_password.encode("utf-8"),
     )
 
 
-def decode_token(token: str) -> dict:
+def create_access_token(user_id: str) -> str:
+    expire = datetime.now(timezone.utc) + timedelta(
+        minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES
+    )
+    payload = {"sub": user_id, "exp": expire, "type": "access"}
+    return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
+
+
+def create_refresh_token(user_id: str) -> str:
+    expire = datetime.now(timezone.utc) + timedelta(
+        days=settings.REFRESH_TOKEN_EXPIRE_DAYS
+    )
+    payload = {"sub": user_id, "exp": expire, "type": "refresh"}
+    return jwt.encode(payload, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
+
+
+def decode_token(token: str) -> Optional[dict]:
     try:
         payload = jwt.decode(
             token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM]
         )
         return payload
     except JWTError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Could not validate credentials",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-
-def get_user_by_email(db: Session, email: str) -> Optional[User]:
-    return db.query(User).filter(User.email == email).first()
-
-
-def get_user_by_id(db: Session, user_id: str) -> Optional[User]:
-    try:
-        return db.query(User).filter(User.id == user_id).first()
-    except Exception:
         return None
 
 
-def create_user(db: Session, user_data: UserCreate) -> User:
-    existing = get_user_by_email(db, user_data.email)
-    if existing:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Email already registered",
-        )
+async def get_user_by_email(db: AsyncSession, email: str) -> Optional[User]:
+    result = await db.execute(select(User).where(User.email == email))
+    return result.scalar_one_or_none()
 
-    if len(user_data.password) < 8:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Password must be at least 8 characters",
-        )
 
+async def get_user_by_id(db: AsyncSession, user_id: UUID) -> Optional[User]:
+    result = await db.execute(select(User).where(User.id == user_id))
+    return result.scalar_one_or_none()
+
+
+async def create_user(db: AsyncSession, data: SignupRequest) -> User:
     user = User(
-        email=user_data.email,
-        password_hash=hash_password(user_data.password),
-        display_name=user_data.display_name,
+        email=data.email,
+        password_hash=hash_password(data.password),
+        display_name=data.display_name,
     )
     db.add(user)
-    db.commit()
-    db.refresh(user)
+    await db.flush()
+    await db.refresh(user)
     return user
 
 
-def authenticate_user(db: Session, email: str, password: str) -> User:
-    user = get_user_by_email(db, email)
-    if not user or not verify_password(password, user.password_hash):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid credentials",
-        )
+async def authenticate_user(db: AsyncSession, data: LoginRequest) -> Optional[User]:
+    user = await get_user_by_email(db, data.email)
+    if not user:
+        return None
+    if not verify_password(data.password, user.password_hash):
+        return None
+    if not user.is_active:
+        return None
     return user
+
+
+async def get_current_user(token: str, db: AsyncSession) -> Optional[User]:
+    payload = decode_token(token)
+    if not payload or payload.get("type") != "access":
+        return None
+    user_id = payload.get("sub")
+    if not user_id:
+        return None
+    try:
+        uid = UUID(user_id)
+    except ValueError:
+        return None
+    return await get_user_by_id(db, uid)
