@@ -1,54 +1,60 @@
 "use client";
+
 import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 
-interface Props {
+interface MarkdownEditorProps {
   value: string;
   onChange: (value: string) => void;
+  placeholder?: string;
 }
 
-export default function MarkdownEditor({ value, onChange }: Props) {
+export default function MarkdownEditor({
+  value,
+  onChange,
+  placeholder = "Write your content in Markdown...",
+}: MarkdownEditorProps) {
   const [mode, setMode] = useState<"edit" | "preview" | "split">("split");
 
   return (
-    <div className="h-full flex flex-col">
-      {/* Toolbar */}
-      <div className="flex gap-1 px-4 py-2 border-b border-slate-100 bg-white">
-        {(["edit", "split", "preview"] as const).map((m) => (
-          <button
-            key={m}
-            onClick={() => setMode(m)}
-            className={`px-3 py-1 text-xs rounded capitalize ${
-              mode === m
-                ? "bg-indigo-100 text-indigo-700 font-semibold"
-                : "text-slate-500 hover:bg-slate-100"
-            }`}
-          >
-            {m}
-          </button>
-        ))}
+    <div className="markdown-editor">
+      <div className="editor-toolbar">
+        <button
+          onClick={() => setMode("edit")}
+          className={mode === "edit" ? "active" : ""}
+          aria-pressed={mode === "edit"}
+        >
+          Edit
+        </button>
+        <button
+          onClick={() => setMode("split")}
+          className={mode === "split" ? "active" : ""}
+          aria-pressed={mode === "split"}
+        >
+          Split
+        </button>
+        <button
+          onClick={() => setMode("preview")}
+          className={mode === "preview" ? "active" : ""}
+          aria-pressed={mode === "preview"}
+        >
+          Preview
+        </button>
       </div>
 
-      {/* Panes */}
-      <div className="flex flex-1 overflow-hidden">
+      <div className={`editor-panes mode-${mode}`}>
         {(mode === "edit" || mode === "split") && (
           <textarea
-            className={`${
-              mode === "split" ? "w-1/2 border-r border-slate-200" : "w-full"
-            } h-full p-4 font-mono text-sm resize-none outline-none bg-white text-slate-800 leading-relaxed`}
+            className="edit-pane"
             value={value}
             onChange={(e) => onChange(e.target.value)}
-            placeholder="Write your post in Markdown..."
-            spellCheck
+            placeholder={placeholder}
+            aria-label="Markdown content"
           />
         )}
         {(mode === "preview" || mode === "split") && (
-          <div
-            className={`${
-              mode === "split" ? "w-1/2" : "w-full"
-            } h-full overflow-y-auto p-6 prose prose-slate max-w-none`}
-          >
-            <ReactMarkdown>{value || "*Nothing to preview yet*"}</ReactMarkdown>
+          <div className="preview-pane" aria-label="Preview">
+            <ReactMarkdown>{value || "*Preview will appear here*"}</ReactMarkdown>
           </div>
         )}
       </div>
