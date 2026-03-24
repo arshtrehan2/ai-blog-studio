@@ -1,9 +1,20 @@
 "use client";
-export default function WordCount({ content }: { content: string }) {
-  const words = content.trim() ? content.trim().split(/\s+/).length : 0;
+import { useMemo } from "react";
+
+interface Props {
+  content: string;
+}
+
+export function WordCount({ content }: Props) {
+  const stats = useMemo(() => {
+    const words = content.trim() ? content.trim().split(/\s+/).length : 0;
+    const chars = content.length;
+    return { words, chars };
+  }, [content]);
+
   return (
-    <span style={{ fontSize: 13, color: "var(--color-text-muted)", whiteSpace: "nowrap" }}>
-      {words} words · {content.length} chars
+    <span className="text-xs text-slate-400">
+      {stats.words} words &middot; {stats.chars} chars
     </span>
   );
 }

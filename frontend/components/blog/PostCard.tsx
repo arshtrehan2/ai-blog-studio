@@ -1,19 +1,37 @@
 import Link from "next/link";
-import { PostListItem } from "@/lib/api";
+import type { PostListItem } from "@/lib/types";
 
-export default function PostCard({ post }: { post: PostListItem }) {
+interface Props {
+  post: PostListItem;
+}
+
+export function PostCard({ post }: Props) {
   return (
-    <article style={{ padding: 24, border: "1px solid var(--color-border)", borderRadius: 8 }}>
-      <Link href={`/${post.slug}`} style={{ color: "inherit", textDecoration: "none" }}>
-        <h2 style={{ fontSize: 22, fontWeight: 700, marginBottom: 8, lineHeight: 1.3 }}>{post.title}</h2>
+    <article className="border-b border-slate-100 pb-6">
+      <Link href={`/blog/${post.slug}`} className="group">
+        <h2 className="text-lg font-semibold text-slate-800 group-hover:text-indigo-600 transition">
+          {post.title}
+        </h2>
       </Link>
-      {post.summary && <p style={{ color: "var(--color-text-muted)", marginBottom: 12, lineHeight: 1.6 }}>{post.summary}</p>}
-      <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-        {post.author && <span style={{ fontSize: 13, color: "var(--color-text-muted)" }}>{post.author.display_name}</span>}
-        {post.published_at && <span style={{ fontSize: 13, color: "var(--color-text-muted)" }}>{new Date(post.published_at).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}</span>}
-        {post.tags.map(tag => (
-          <Link key={tag} href={`/?tag=${encodeURIComponent(tag)}`}
-            style={{ padding: "2px 8px", background: "var(--color-bg-secondary)", border: "1px solid var(--color-border)", borderRadius: 12, fontSize: 12, color: "var(--color-text-muted)" }}>
+      {post.summary && (
+        <p className="mt-1 text-sm text-slate-600 leading-relaxed">{post.summary}</p>
+      )}
+      <div className="mt-2 flex items-center gap-2 text-xs text-slate-400 flex-wrap">
+        {post.author && <span>{post.author.display_name}</span>}
+        {post.published_at && (
+          <>
+            <span>&middot;</span>
+            <time dateTime={post.published_at}>
+              {new Date(post.published_at).toLocaleDateString()}
+            </time>
+          </>
+        )}
+        {post.tags.map((tag) => (
+          <Link
+            key={tag}
+            href={`/?tag=${tag}`}
+            className="bg-slate-100 hover:bg-indigo-50 hover:text-indigo-600 px-2 py-0.5 rounded-full"
+          >
             {tag}
           </Link>
         ))}

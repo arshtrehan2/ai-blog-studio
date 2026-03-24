@@ -1,91 +1,150 @@
 "use client";
 import { useState } from "react";
-import { aiAPI } from "@/lib/api";
-import { getToken } from "@/lib/auth";
-import AISuggestion from "./AISuggestion";
-
-type ToolName = "improve" | "summary" | "tags" | "seo-title" | "tldr";
-type ToolState = "idle" | "loading" | "suggestion" | "error";
+import { api } from "@/lib/api";
+import type {
+  AIToolStatus,
+  ImproveResponse,
+  SummaryResponse,
+  TagsResponse,
+  SeoTitleResponse,
+  TldrResponse,
+} from "@/lib/types";
 
 interface Props {
-  content: string; title: string;
-  onSuggestTags: (tags: string[]) => void;
-  onSuggestSummary: (summary: string) => void;
-  onSuggestSEO: (seoTitle: string, seoDesc: string) => void;
+  content: string;
+  title?: string;
+  onImprove: (improved: string) => void;
+  onSummary: (summary: string) => void;
+  onTags: (tags: string[]) => void;
+  onSeoTitle: (title: string, description: string) => void;
+  onTldr: (tldr: string) => void;
 }
 
-export default function AIToolsPanel({ content, title, onSuggestTags, onSuggestSummary, onSuggestSEO }: Props) {
-  const [toolState, setToolState] = useState<ToolState>("idle");
-  const [activeTool, setActiveTool] = useState<ToolName | null>(null);
-  const [suggestion, setSuggestion] = useState<{ label: string; text: string; onAccept: () => void } | null>(null);
-  const [error, setError] = useState<string | null>(null);
+type ToolKey = "improve" | "summary" | "tags" | "seo" | "tldr";
 
-  async function runTool(tool: ToolName) {
-    const token = getToken();
-    if (!token) { setError("Please sign in to use AI tools."); return; }
-    if (!content.trim()) { setError("Please add some content first."); return; }
-    setActiveTool(tool); setToolState("loading"); setError(null); setSuggestion(null);
+export function AIToolsPanel({
+  content,
+  title,
+  onImprove,
+  onSummary,
+  onTags,
+  onSeoTitle,
+  onTldr,
+}: Props) {
+  const [statuses, setStatuses] = useState<Record<ToolKey, AIToolStatus>>({
+    improve: "idle",
+    summary: "idle",
+    tags: "idle",
+    seo: "idle",
+    tldr: "idle",
+  });
+  const [error, setError] = useState<string | null>(null);
+  const [suggestions, setSuggestions] = useState<Record<string, string>>({})
+
+  const setStatus = (key: ToolKey, status: AIToolStatus) =>
+    setStatuses((s) => ({ ...s, [key]: status }));
+
+  async function runTool(key: ToolKey) {
+    if (!content.trim()) {
+      setError("Write some content first.");
+      return;
+    }
+    setStatus(key, "loading");
+    setError(null);
     try {
-      switch (tool) {
+      switch (key) {
         case "improve": {
-          const r = await aiAPI.improve({ content }, token);
-          setSuggestion({ label: "Improved Content", text: r.improved_content, onAccept: () => { setToolState("idle"); setSuggestion(null); } });
-          setToolState("suggestion"); break;
+          const r = await api.post<ImproveResponse>("/ai/improve", { content });
+          setSuggestions((s) => ({ ...s, improve: r.improved_content }));
+          setStatus(key, "suggestion");
+          break;
         }
         case "summary": {
-          const r = await aiAPI.summary({ content }, token);
-          setSuggestion({ label: "Suggested Summary", text: r.summary, onAccept: () => { onSuggestSummary(r.summary); setToolState("idle"); setSuggestion(null); } });
-          setToolState("suggestion"); break;
+          const r = await api.post<SummaryResponse>("/ai/summary", { content });
+          onSummary(r.summary);
+          setStatus(key, "accepted");
+          break;
         }
         case "tags": {
-          const r = await aiAPI.tags({ content, title }, token);
-          setSuggestion({ label: "Suggested Tags", text: r.tags.join(", "), onAccept: () => { onSuggestTags(r.tags); setToolState("idle"); setSuggestion(null); } });
-          setToolState("suggestion"); break;
+          const r = await api.post<TagsResponse>("/ai/tags", { content, title });
+          onTags(r.tags);
+          setStatus(key, "accepted");
+          break;
         }
-        case "seo-title": {
-          const r = await aiAPI.seoTitle({ content, title }, token);
-          onSuggestSEO(r.seo_title, r.seo_description);
-          setSuggestion({ label: "SEO fields updated!", text: `Title: ${r.seo_title}\nDescription: ${r.seo_description}`, onAccept: () => { setToolState("idle"); setSuggestion(null); } });
-          setToolState("suggestion"); break;
+        case "seo": {
+          const r = await api.post<SeoTitleResponse>("/ai/seo-title", { content, title });
+          onSeoTitle(r.seo_title, r.seo_description);
+          setStatus(key, "accepted");
+          break;
         }
         case "tldr": {
-          const r = await aiAPI.tldr({ content }, token);
-          setSuggestion({ label: "TLDR", text: r.tldr, onAccept: () => { onSuggestSummary(r.tldr); setToolState("idle"); setSuggestion(null); } });
-          setToolState("suggestion"); break;
+          const r = await api.post<TldrResponse>("/ai/tldr", { content });
+          onTldr(r.tldr);
+          setStatus(key, "accepted");
+          break;
         }
       }
     } catch (err: unknown) {
-      const status = (err as { status?: number })?.status;
-      setError(status === 429 ? "Rate limit reached. Please wait." : "AI tool failed. Please try again.");
-      setToolState("error");
+      setError(err instanceof Error ? err.message : "AI error");
+      setStatus(key, "idle");
     }
   }
 
-  const tools: { name: ToolName; label: string; description: string }[] = [
-    { name: "improve", label: "Improve Writing", description: "Rewrite for clarity & quality" },
-    { name: "summary", label: "Generate Summary", description: "Auto-summarize the post" },
-    { name: "tags", label: "Suggest Tags", description: "Auto-generate relevant tags" },
-    { name: "seo-title", label: "SEO Title + Meta", description: "Optimize for search engines" },
-    { name: "tldr", label: "Generate TLDR", description: "One-line summary" },
+  const tools: { key: ToolKey; label: string; description: string }[] = [
+    { key: "improve", label: "✨ Improve Writing", description: "Rewrite for clarity & engagement" },
+    { key: "summary", label: "📝 Auto Summary", description: "Generate post summary" },
+    { key: "tags", label: "🏷 Suggest Tags", description: "Get relevant tags" },
+    { key: "seo", label: "🔍 SEO Title & Meta", description: "Optimize for search" },
+    { key: "tldr", label: "⚡ TLDR", description: "1-2 sentence overview" },
   ];
 
   return (
-    <section>
-      <h3 style={{ fontSize: 13, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", color: "var(--color-text-muted)", marginBottom: 12 }}>AI Tools</h3>
-      {error && <div role="alert" style={{ padding: "8px 12px", background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 6, color: "var(--color-error)", fontSize: 13, marginBottom: 12 }}>{error}</div>}
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {tools.map(({ name, label, description }) => (
-          <button key={name} onClick={() => runTool(name)} disabled={toolState === "loading"}
-            style={{ padding: "10px 12px", background: activeTool === name && toolState === "loading" ? "#dbeafe" : "white", border: "1px solid var(--color-border)", borderRadius: 6, textAlign: "left", cursor: toolState === "loading" ? "not-allowed" : "pointer", opacity: toolState === "loading" && activeTool !== name ? 0.6 : 1 }}>
-            <div style={{ fontSize: 13, fontWeight: 600 }}>{activeTool === name && toolState === "loading" ? "Running..." : label}</div>
-            <div style={{ fontSize: 12, color: "var(--color-text-muted)", marginTop: 2 }}>{description}</div>
-          </button>
+    <div className="p-4">
+      <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">AI Tools</h3>
+      {error && (
+        <div className="mb-3 p-2 rounded bg-red-50 text-red-600 text-xs">{error}</div>
+      )}
+      <div className="space-y-2">
+        {tools.map(({ key, label, description }) => (
+          <div key={key}>
+            <button
+              onClick={() => runTool(key)}
+              disabled={statuses[key] === "loading"}
+              className="w-full text-left px-3 py-2 rounded-lg border border-slate-200 hover:border-indigo-300 hover:bg-indigo-50 disabled:opacity-50 transition"
+            >
+              <div className="text-sm font-medium text-slate-700">{label}</div>
+              <div className="text-xs text-slate-400">{description}</div>
+              {statuses[key] === "loading" && (
+                <div className="text-xs text-indigo-500 mt-1">Generating...</div>
+              )}
+              {statuses[key] === "accepted" && (
+                <div className="text-xs text-green-500 mt-1">✓ Applied</div>
+              )}
+            </button>
+            {/* Diff view for improve */}
+            {key === "improve" && statuses.improve === "suggestion" && suggestions.improve && (
+              <div className="mt-2 p-3 rounded-lg bg-indigo-50 border border-indigo-200 text-xs">
+                <p className="text-indigo-700 font-medium mb-1">Suggested improvement:</p>
+                <p className="text-slate-700 line-clamp-4">{suggestions.improve.slice(0, 300)}...</p>
+                <div className="flex gap-2 mt-2">
+                  <button
+                    onClick={() => { onImprove(suggestions.improve!); setStatus("improve", "accepted"); }}
+                    className="px-2 py-1 bg-indigo-600 text-white rounded text-xs hover:bg-indigo-700"
+                  >
+                    Accept
+                  </button>
+                  <button
+                    onClick={() => setStatus("improve", "idle")}
+                    className="px-2 py-1 bg-slate-200 text-slate-700 rounded text-xs hover:bg-slate-300"
+                  >
+                    Reject
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         ))}
       </div>
-      {toolState === "suggestion" && suggestion && (
-        <AISuggestion label={suggestion.label} original={null} suggestion={suggestion.text}
-          onAccept={suggestion.onAccept} onReject={() => { setToolState("idle"); setSuggestion(null); }} />
-      )}
-    </section>
+    </div>
   );
 }
